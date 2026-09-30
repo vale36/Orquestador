@@ -1,12 +1,18 @@
 from typing import Any
 
+from app.services.ports import (
+    ExtractionPort,
+    PersistenceUpdatesPort,
+    ValidationPort,
+)
+
 
 class OrchestratorService:
     def __init__(
         self,
-        validation_service: Any,
-        extraction_service: Any,
-        persistence_service: Any,
+        validation_service: ValidationPort,
+        extraction_service: ExtractionPort,
+        persistence_service: PersistenceUpdatesPort,
         compensation_service: Any,
     ) -> None:
         self._validation_service = validation_service
