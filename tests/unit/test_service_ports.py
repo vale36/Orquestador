@@ -1,4 +1,4 @@
-from typing import Any, get_type_hints
+from typing import get_type_hints
 from uuid import UUID
 
 import app.services.ports as ports
@@ -29,7 +29,7 @@ def test_service_dependencies_are_typed_against_ports() -> None:
     assert annotations["validation_service"] is ValidationPort
     assert annotations["extraction_service"] is ExtractionPort
     assert annotations["persistence_service"] is PersistenceUpdatesPort
-    assert annotations["compensation_service"] is Any
+    assert "compensation_service" not in annotations
     assert not hasattr(ports, "PersistenceCompensationPort")
 
 

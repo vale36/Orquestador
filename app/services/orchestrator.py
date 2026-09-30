@@ -1,5 +1,8 @@
-from typing import Any
-
+from app.schemas.pdf_schemas import (
+    PdfDocumentResponseSchema,
+    PdfRequestSchema,
+    PersistenceCreateRequestSchema,
+)
 from app.services.ports import (
     ExtractionPort,
     PersistenceUpdatesPort,
@@ -13,23 +16,29 @@ class OrchestratorService:
         validation_service: ValidationPort,
         extraction_service: ExtractionPort,
         persistence_service: PersistenceUpdatesPort,
-        compensation_service: Any,
     ) -> None:
         self._validation_service = validation_service
         self._extraction_service = extraction_service
         self._persistence_service = persistence_service
-        self._compensation_service = compensation_service
 
     def orchestrate(
         self,
-        request: dict[str, Any],
+        request: PdfRequestSchema,
         correlation_id: str,
-    ) -> Any:
+    ) -> PdfDocumentResponseSchema:
         self._validation_service.validate(request, correlation_id)
-        self._extraction_service.extract(request, correlation_id)
-
-        try:
-            return self._persistence_service.create(request, correlation_id)
-        except Exception:
-            self._compensation_service.compensate(request, correlation_id)
-            raise
+        extraction_result = self._extraction_service.extract(
+            request,
+            correlation_id,
+        )
+        persistence_request = PersistenceCreateRequestSchema(
+            nombre=extraction_result.nombre,
+            checksum=extraction_result.checksum,
+            texto=extraction_result.texto,
+            tamano_bytes=extraction_result.tamano_bytes,
+            paginas=extraction_result.paginas,
+        )
+        return self._persistence_service.create(
+            persistence_request,
+            correlation_id,
+        )
