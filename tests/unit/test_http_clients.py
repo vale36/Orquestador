@@ -107,6 +107,8 @@ def configure_urls(monkeypatch) -> None:
         "PERSISTENCIA_ACTUALIZACIONES_URL", "http://persistence.test"
     )
     monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "2.5")
+    monkeypatch.setenv("RETRY_ATTEMPTS", "0")
+    monkeypatch.setenv("RETRY_DELAY_SECONDS", "0")
 
 
 def test_validation_client_sends_configured_json_and_correlation_id(monkeypatch) -> None:

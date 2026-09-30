@@ -1,6 +1,9 @@
 import json
+import logging
+import math
 import os
 import socket
+import time
 import urllib.error
 import urllib.request
 from typing import TypeVar
@@ -15,6 +18,8 @@ from app.services.ports import (
 
 ResponseSchema = TypeVar("ResponseSchema", bound=BaseModel)
 ServiceError = TypeVar("ServiceError", bound=ExternalServiceError)
+logger = logging.getLogger(__name__)
+RETRYABLE_HTTP_STATUSES = {408, 429, 500, 502, 503, 504}
 
 
 class HttpJsonClient:
@@ -37,6 +42,35 @@ class HttpJsonClient:
             ) from error
         if self._timeout_seconds <= 0:
             raise ValueError("REQUEST_TIMEOUT_SECONDS must be greater than zero")
+        if not math.isfinite(self._timeout_seconds):
+            raise ValueError("REQUEST_TIMEOUT_SECONDS must be finite")
+        retry_attempts_value = self._required_environment_value(
+            "RETRY_ATTEMPTS"
+        )
+        try:
+            self._retry_attempts = int(retry_attempts_value)
+        except ValueError as error:
+            raise ValueError(
+                "RETRY_ATTEMPTS must be a non-negative integer"
+            ) from error
+        if self._retry_attempts < 0:
+            raise ValueError("RETRY_ATTEMPTS must be a non-negative integer")
+        retry_delay_value = self._required_environment_value(
+            "RETRY_DELAY_SECONDS"
+        )
+        try:
+            self._retry_delay_seconds = float(retry_delay_value)
+        except ValueError as error:
+            raise ValueError(
+                "RETRY_DELAY_SECONDS must be a finite non-negative number"
+            ) from error
+        if (
+            not math.isfinite(self._retry_delay_seconds)
+            or self._retry_delay_seconds < 0
+        ):
+            raise ValueError(
+                "RETRY_DELAY_SECONDS must be a finite non-negative number"
+            )
         self._service_name = service_name
 
     @staticmethod
@@ -64,30 +98,121 @@ class HttpJsonClient:
             method="POST",
         )
 
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=self._timeout_seconds,
-            ) as response:
-                response_body = response.read()
-        except urllib.error.HTTPError as error:
-            self._raise_http_error(error, error_schema, correlation_id)
-        except urllib.error.URLError as error:
-            if isinstance(error.reason, (TimeoutError, socket.timeout)):
-                self._raise_timeout(correlation_id, error)
-            self._raise_unavailable(correlation_id, str(error.reason))
-        except (TimeoutError, socket.timeout) as error:
-            self._raise_timeout(correlation_id, error)
-        except OSError as error:
-            self._raise_unavailable(correlation_id, str(error))
+        response_body = self._send_with_retries(
+            request,
+            correlation_id,
+            error_schema,
+        )
 
         try:
             return response_schema.model_validate_json(response_body)
         except (ValueError, ValidationError) as error:
             self._raise_unavailable(
                 correlation_id,
-                f"Invalid response from {self._service_name}: {error}"
+                f"Invalid response from {self._service_name}: {error}",
             )
+
+    def _send_with_retries(
+        self,
+        request: urllib.request.Request,
+        correlation_id: str,
+        error_schema: type[ServiceError],
+    ) -> bytes:
+        for attempt in range(self._retry_attempts + 1):
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self._timeout_seconds,
+                ) as response:
+                    return response.read()
+            except urllib.error.HTTPError as error:
+                if (
+                    error.code in RETRYABLE_HTTP_STATUSES
+                    and self._wait_before_retry(
+                        attempt,
+                        correlation_id,
+                        f"HTTP {error.code}",
+                    )
+                ):
+                    error.close()
+                    continue
+                self._raise_http_error(error, error_schema, correlation_id)
+            except urllib.error.URLError as error:
+                if isinstance(error.reason, (TimeoutError, socket.timeout)):
+                    self._retry_or_raise_timeout(
+                        attempt,
+                        correlation_id,
+                        error,
+                    )
+                else:
+                    self._retry_or_raise_unavailable(
+                        attempt,
+                        correlation_id,
+                        error,
+                        "connection error",
+                    )
+            except (TimeoutError, socket.timeout) as error:
+                self._retry_or_raise_timeout(
+                    attempt,
+                    correlation_id,
+                    error,
+                )
+            except OSError as error:
+                self._retry_or_raise_unavailable(
+                    attempt,
+                    correlation_id,
+                    error,
+                    "connection error",
+                )
+
+        raise RuntimeError("HTTP retry loop exited without a response")
+
+    def _retry_or_raise_timeout(
+        self,
+        attempt: int,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None:
+        if self._wait_before_retry(attempt, correlation_id, "timeout"):
+            return
+        self._raise_timeout(correlation_id, error)
+
+    def _retry_or_raise_unavailable(
+        self,
+        attempt: int,
+        correlation_id: str,
+        error: BaseException,
+        reason: str,
+    ) -> None:
+        if self._wait_before_retry(
+            attempt,
+            correlation_id,
+            f"{reason}: {type(error).__name__}",
+        ):
+            return
+        self._raise_unavailable(correlation_id, str(error), cause=error)
+
+    def _wait_before_retry(
+        self,
+        attempt: int,
+        correlation_id: str,
+        reason: str,
+    ) -> bool:
+        if attempt >= self._retry_attempts:
+            return False
+
+        logger.warning(
+            "Retrying external request service=%s next_attempt=%d "
+            "max_retries=%d reason=%s correlation_id=%s",
+            self._service_name,
+            attempt + 2,
+            self._retry_attempts,
+            reason,
+            correlation_id,
+        )
+        if self._retry_delay_seconds:
+            time.sleep(self._retry_delay_seconds)
+        return True
 
     def _raise_http_error(
         self,
