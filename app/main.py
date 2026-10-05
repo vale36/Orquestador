@@ -20,6 +20,12 @@ app = FastAPI(
 )
 app.include_router(pdf_router)
 
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 SERVICE_ERROR_STATUS = {
     ValidationServiceError: 422,
     ExtractionServiceError: status.HTTP_502_BAD_GATEWAY,

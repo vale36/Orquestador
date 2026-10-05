@@ -160,6 +160,13 @@ def test_post_pdf_invokes_orchestrator_and_returns_created_document(
     ]
 
 
+def test_get_health_reports_service_available() -> None:
+    status, _, response_body = invoke_asgi("GET", "/health", {})
+
+    assert status == 200
+    assert response_body == {"status": "ok"}
+
+
 def test_post_pdf_generates_correlation_id_when_header_is_missing(monkeypatch) -> None:
     from app.controllers.pdf_routes import get_orchestrator_service
 
