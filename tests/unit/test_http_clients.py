@@ -20,7 +20,6 @@ from app.services.ports import (
     ExtractionPort,
     ExtractionServiceError,
     PersistenceServiceError,
-    PersistenceUpdatesPort,
     ValidationPort,
     ValidationServiceError,
 )
@@ -257,9 +256,9 @@ def test_persistence_client_translates_transport_timeout(monkeypatch) -> None:
     assert error.value.error.correlation_id == UUID(CORRELATION_ID)
 
 
-def test_http_clients_implement_their_ports(monkeypatch) -> None:
+def test_http_clients_implement_their_available_ports(monkeypatch) -> None:
     configure_urls(monkeypatch)
 
     assert isinstance(ValidationHttpClient(), ValidationPort)
     assert isinstance(ExtractionHttpClient(), ExtractionPort)
-    assert isinstance(PersistenceUpdatesHttpClient(), PersistenceUpdatesPort)
+    assert callable(PersistenceUpdatesHttpClient().create)

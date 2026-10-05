@@ -1,3 +1,5 @@
+import logging
+
 from app.schemas.pdf_schemas import (
     PdfDocumentResponseSchema,
     PdfRequestSchema,
@@ -8,6 +10,8 @@ from app.services.ports import (
     PersistenceUpdatesPort,
     ValidationPort,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorService:
@@ -38,7 +42,35 @@ class OrchestratorService:
             tamano_bytes=extraction_result.tamano_bytes,
             paginas=extraction_result.paginas,
         )
-        return self._persistence_service.create(
-            persistence_request,
-            correlation_id,
-        )
+        try:
+            return self._persistence_service.create(
+                persistence_request,
+                correlation_id,
+            )
+        except Exception:
+            logger.warning(
+                "Attempting SAGA compensation checksum=%s correlation_id=%s",
+                persistence_request.checksum,
+                correlation_id,
+            )
+            try:
+                self._persistence_service.compensate(
+                    persistence_request.checksum,
+                    correlation_id,
+                )
+            except Exception as compensation_error:
+                logger.error(
+                    "SAGA compensation failed checksum=%s correlation_id=%s "
+                    "error_type=%s",
+                    persistence_request.checksum,
+                    correlation_id,
+                    type(compensation_error).__name__,
+                )
+            else:
+                logger.info(
+                    "SAGA compensation completed checksum=%s "
+                    "correlation_id=%s result=success",
+                    persistence_request.checksum,
+                    correlation_id,
+                )
+            raise

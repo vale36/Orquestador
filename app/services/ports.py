@@ -93,3 +93,15 @@ class PersistenceUpdatesPort(Protocol):
         correlation_id: str,
     ) -> PdfDocumentResponseSchema:
         ...
+
+    def compensate(
+        self,
+        checksum: str,
+        correlation_id: str,
+    ) -> None:
+        """Undo persistence for a checksum; repeated calls are safe.
+
+        If the resource no longer exists, compensation succeeds without
+        performing another deletion.
+        """
+        ...

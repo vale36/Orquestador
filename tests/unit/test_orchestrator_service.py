@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -110,9 +111,11 @@ class FakePersistenceUpdatesPort:
     result: PdfDocumentResponseSchema | Exception = field(
         default_factory=lambda: CREATED_DOCUMENT.model_copy()
     )
+    compensation_result: Exception | None = None
     calls: list[
         tuple[PersistenceCreateRequestSchema, str]
     ] = field(default_factory=list)
+    compensation_calls: list[tuple[str, str]] = field(default_factory=list)
     events: list[str] | None = None
 
     def create(
@@ -126,6 +129,13 @@ class FakePersistenceUpdatesPort:
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
+
+    def compensate(self, checksum: str, correlation_id: str) -> None:
+        self.compensation_calls.append((checksum, correlation_id))
+        if self.events is not None:
+            self.events.append("compensation")
+        if self.compensation_result is not None:
+            raise self.compensation_result
 
 
 def build_orchestrator(
@@ -151,6 +161,7 @@ def test_successful_flow_returns_created_document_in_dependency_order() -> None:
 
     assert result == CREATED_DOCUMENT
     assert events == ["validation", "extraction", "persistence"]
+    assert persistence.compensation_calls == []
 
 
 def test_extraction_result_builds_the_persistence_creation_request() -> None:
@@ -190,6 +201,7 @@ def test_validation_error_propagates_without_calling_later_ports() -> None:
     assert raised.value is error
     assert extraction.calls == []
     assert persistence.calls == []
+    assert persistence.compensation_calls == []
 
 
 def test_extraction_error_propagates_without_calling_persistence() -> None:
@@ -206,9 +218,10 @@ def test_extraction_error_propagates_without_calling_persistence() -> None:
 
     assert raised.value is error
     assert persistence.calls == []
+    assert persistence.compensation_calls == []
 
 
-def test_persistence_error_propagates_without_saga_compensation() -> None:
+def test_persistence_error_propagates_after_saga_compensation() -> None:
     error = PersistenceServiceError(
         service_error("DATABASE_ERROR", "persistence failed")
     )
@@ -222,3 +235,53 @@ def test_persistence_error_propagates_without_saga_compensation() -> None:
 
     assert raised.value is error
     assert len(persistence.calls) == 1
+    assert len(persistence.compensation_calls) == 1
+
+
+def test_persistence_error_triggers_saga_compensation(caplog) -> None:
+    error = PersistenceServiceError(
+        service_error("DATABASE_ERROR", "persistence failed")
+    )
+    validation = FakeValidationPort()
+    extraction = FakeExtractionPort()
+    persistence = FakePersistenceUpdatesPort(result=error)
+    service = build_orchestrator(validation, extraction, persistence)
+
+    with caplog.at_level(logging.INFO, logger="app.services.orchestrator"):
+        with pytest.raises(PersistenceServiceError):
+            service.orchestrate(REQUEST, correlation_id=CORRELATION_ID)
+
+    assert persistence.compensation_calls == [
+        (EXPECTED_PERSISTENCE_REQUEST.checksum, CORRELATION_ID)
+    ]
+    assert "Attempting SAGA compensation" in caplog.text
+    assert "result=success" in caplog.text
+    assert EXPECTED_PERSISTENCE_REQUEST.checksum in caplog.text
+    assert CORRELATION_ID in caplog.text
+    assert REQUEST.archivo_base64 not in caplog.text
+
+
+def test_compensation_error_is_logged_and_persistence_error_is_preserved(
+    caplog,
+) -> None:
+    persistence_error = PersistenceServiceError(
+        service_error("DATABASE_ERROR", "persistence failed")
+    )
+    compensation_error = RuntimeError("compensation failed")
+    validation = FakeValidationPort()
+    extraction = FakeExtractionPort()
+    persistence = FakePersistenceUpdatesPort(
+        result=persistence_error,
+        compensation_result=compensation_error,
+    )
+    service = build_orchestrator(validation, extraction, persistence)
+
+    with caplog.at_level(logging.ERROR, logger="app.services.orchestrator"):
+        with pytest.raises(PersistenceServiceError) as raised:
+            service.orchestrate(REQUEST, correlation_id=CORRELATION_ID)
+
+    assert raised.value is persistence_error
+    assert "SAGA compensation failed" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert EXPECTED_PERSISTENCE_REQUEST.checksum in caplog.text
+    assert CORRELATION_ID in caplog.text

@@ -37,6 +37,7 @@ def test_ports_define_contract_payloads_responses_and_correlation_id() -> None:
     validation = get_type_hints(ValidationPort.validate)
     extraction = get_type_hints(ExtractionPort.extract)
     persistence = get_type_hints(PersistenceUpdatesPort.create)
+    compensation = get_type_hints(PersistenceUpdatesPort.compensate)
 
     assert validation == {
         "request": PdfRequestSchema,
@@ -52,6 +53,11 @@ def test_ports_define_contract_payloads_responses_and_correlation_id() -> None:
         "request": PersistenceCreateRequestSchema,
         "correlation_id": str,
         "return": PdfDocumentResponseSchema,
+    }
+    assert compensation == {
+        "checksum": str,
+        "correlation_id": str,
+        "return": type(None),
     }
 
 
@@ -115,6 +121,13 @@ def test_ports_are_structurally_implementable_by_test_doubles() -> None:
                 created_at="2026-09-14T00:00:00Z",
                 updated_at="2026-09-14T00:00:00Z",
             )
+
+        def compensate(
+            self,
+            checksum: str,
+            correlation_id: str,
+        ) -> None:
+            return None
 
     validation = ValidationFake()
     extraction = ExtractionFake()
