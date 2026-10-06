@@ -1,7 +1,7 @@
 import ast
 import inspect
 from dataclasses import fields, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import get_type_hints
 from uuid import UUID
 
@@ -36,9 +36,7 @@ def test_pdf_document_is_a_pure_domain_dataclass() -> None:
     }
     assert "pydantic" not in imported_modules
 
-    class_node = next(
-        node for node in module.body if isinstance(node, ast.ClassDef)
-    )
+    class_node = next(node for node in module.body if isinstance(node, ast.ClassDef))
     decorator_names = {
         decorator.id
         for node in ast.walk(class_node)
@@ -60,8 +58,8 @@ def test_pdf_document_is_a_pure_domain_dataclass() -> None:
 
 def test_pdf_document_represents_shared_document_contract() -> None:
     identifier = UUID("8f6f7c3e-12d5-4f57-9c6c-123456789abc")
-    created_at = datetime(2026, 9, 14, 18, 0, tzinfo=timezone.utc)
-    updated_at = datetime(2026, 9, 14, 18, 0, tzinfo=timezone.utc)
+    created_at = datetime(2026, 9, 14, 18, 0, tzinfo=UTC)
+    updated_at = datetime(2026, 9, 14, 18, 0, tzinfo=UTC)
 
     document = PdfDocument(
         id=identifier,
@@ -81,5 +79,5 @@ def test_pdf_document_represents_shared_document_contract() -> None:
     assert document.texto == "Contenido extraído del PDF"
     assert document.tamano_bytes == 245760
     assert document.paginas == 3
-    assert document.created_at.tzinfo == timezone.utc
-    assert document.updated_at.tzinfo == timezone.utc
+    assert document.created_at.tzinfo == UTC
+    assert document.updated_at.tzinfo == UTC

@@ -1,13 +1,14 @@
-from uuid import UUID, uuid4
+from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, Header, Request, Response, status
+from fastapi import APIRouter, Depends, Request, status
 
+from app.core.composition import get_orchestrator_service
+from app.models.pdf_document import PdfRequest
 from app.schemas.pdf_schemas import (
     ErrorResponseSchema,
     PdfDocumentResponseSchema,
     PdfRequestSchema,
 )
-from app.services.dependencies import get_orchestrator_service
 from app.services.orchestrator import OrchestratorService
 
 router = APIRouter(tags=["PDF"])
@@ -18,33 +19,22 @@ router = APIRouter(tags=["PDF"])
     response_model=PdfDocumentResponseSchema,
     status_code=status.HTTP_201_CREATED,
     responses={
-        422: {
-            "model": ErrorResponseSchema,
-            "description": "La solicitud o validación del PDF fue rechazada.",
-        },
-        502: {
-            "model": ErrorResponseSchema,
-            "description": "Falló el procesamiento del PDF en una dependencia.",
-        },
-        503: {
-            "model": ErrorResponseSchema,
-            "description": "Una dependencia no está disponible.",
-        },
+        400: {"model": ErrorResponseSchema, "description": "Request inválido."},
+        409: {"model": ErrorResponseSchema, "description": "PDF ya guardado."},
+        413: {"model": ErrorResponseSchema, "description": "PDF demasiado grande."},
+        422: {"model": ErrorResponseSchema, "description": "PDF inválido o corrupto."},
+        503: {"model": ErrorResponseSchema, "description": "Dependencia caída."},
     },
 )
-def create_pdf(
+async def create_pdf(
     pdf_request: PdfRequestSchema,
     request: Request,
-    response: Response,
-    correlation_id: UUID | None = Header(default=None, alias="X-Correlation-ID"),
-    orchestrator_service: OrchestratorService = Depends(
-        get_orchestrator_service
-    ),
+    orchestrator_service: OrchestratorService = Depends(get_orchestrator_service),
 ) -> PdfDocumentResponseSchema:
-    request_correlation_id = str(correlation_id or uuid4())
-    request.state.correlation_id = request_correlation_id
-    response.headers["X-Correlation-ID"] = request_correlation_id
-    return orchestrator_service.orchestrate(
-        pdf_request,
-        request_correlation_id,
+    document = await orchestrator_service.orchestrate(
+        PdfRequest(
+            archivo_base64=pdf_request.archivo_base64, nombre=pdf_request.nombre
+        ),
+        request.state.correlation_id,
     )
+    return PdfDocumentResponseSchema.model_validate(asdict(document))
