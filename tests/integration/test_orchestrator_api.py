@@ -1,4 +1,5 @@
 import json
+import logging
 from uuid import UUID
 
 import httpx
@@ -194,3 +195,46 @@ async def test_unexpected_error_returns_internal_error(client, ports) -> None:
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
     assert response.json()["error"]["correlation_id"] == CORRELATION_ID
     assert response.headers["X-Correlation-ID"] == CORRELATION_ID
+
+
+def records_with(caplog, correlation_id: str) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if getattr(r, "correlation_id", None) == correlation_id
+    ]
+
+
+async def test_each_request_is_logged_with_its_correlation_id(client, caplog) -> None:
+    caplog.set_level(logging.INFO)
+
+    await client.post(
+        "/pdf", json=REQUEST_BODY, headers={"X-Correlation-ID": CORRELATION_ID}
+    )
+
+    messages = [r.getMessage() for r in records_with(caplog, CORRELATION_ID)]
+    assert any("method=POST path=/pdf status=201" in m for m in messages)
+
+
+async def test_each_error_is_logged_with_its_code(client, ports, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    ports.updates.error = ExternalServiceError("DUPLICATE_CHECKSUM", "duplicado")
+
+    await client.post(
+        "/pdf", json=REQUEST_BODY, headers={"X-Correlation-ID": CORRELATION_ID}
+    )
+
+    messages = [r.getMessage() for r in records_with(caplog, CORRELATION_ID)]
+    assert any("code=DUPLICATE_CHECKSUM status=409" in m for m in messages)
+
+
+async def test_saga_logs_carry_the_correlation_id(client, ports, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    ports.updates.error = DependencyUnavailableError("timeout")
+
+    await client.post(
+        "/pdf", json=REQUEST_BODY, headers={"X-Correlation-ID": CORRELATION_ID}
+    )
+
+    messages = [r.getMessage() for r in records_with(caplog, CORRELATION_ID)]
+    assert any("SAGA compensation completed" in m for m in messages)
