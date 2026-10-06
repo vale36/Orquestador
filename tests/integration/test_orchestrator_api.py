@@ -157,3 +157,27 @@ async def test_full_flow_through_the_real_http_adapters(monkeypatch) -> None:
         "extraccion.test/extraer",
         "actualizaciones.test/pdf",
     ]
+
+
+async def test_health_reuses_the_correlation_id(client) -> None:
+    response = await client.get("/health", headers={"X-Correlation-ID": CORRELATION_ID})
+
+    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
+
+
+async def test_health_generates_a_correlation_id_when_missing(client) -> None:
+    response = await client.get("/health")
+
+    UUID(response.headers["X-Correlation-ID"])
+
+
+async def test_a_correlation_id_that_is_not_a_uuid_is_replaced(client, ports) -> None:
+    # Contrato: identificación UUID. Se reemplaza en lugar de rechazar el PDF.
+    response = await client.post(
+        "/pdf", json=REQUEST_BODY, headers={"X-Correlation-ID": "abc-123"}
+    )
+
+    assert response.status_code == 201
+    nuevo = response.headers["X-Correlation-ID"]
+    UUID(nuevo)
+    assert ports.validation.calls[0][1] == nuevo
