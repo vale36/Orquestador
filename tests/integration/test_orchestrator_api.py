@@ -181,3 +181,16 @@ async def test_a_correlation_id_that_is_not_a_uuid_is_replaced(client, ports) ->
     nuevo = response.headers["X-Correlation-ID"]
     UUID(nuevo)
     assert ports.validation.calls[0][1] == nuevo
+
+
+async def test_unexpected_error_returns_internal_error(client, ports) -> None:
+    ports.validation.error = RuntimeError("falla no prevista")
+
+    response = await client.post(
+        "/pdf", json=REQUEST_BODY, headers={"X-Correlation-ID": CORRELATION_ID}
+    )
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "INTERNAL_ERROR"
+    assert response.json()["error"]["correlation_id"] == CORRELATION_ID
+    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
