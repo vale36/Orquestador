@@ -18,7 +18,15 @@ La aplicación no arranca sin sus siete variables de entorno (se validan al
 iniciar). Ejemplo completo:
 
 ```sh
-docker run --rm --name orquestador -p 8000:8000   -e VALIDACION_URL=http://validacion-pdf:8000   -e EXTRACCION_URL=http://extraccion-texto:8000   -e PERSISTENCIA_ACTUALIZACIONES_URL=http://persistencia-actualizaciones:8000   -e PERSISTENCIA_CONSULTAS_URL=http://persistencia-consultas:8000   -e REQUEST_TIMEOUT_SECONDS=2.5   -e RETRY_ATTEMPTS=2   -e RETRY_DELAY_SECONDS=0.25   orquestador:local
+docker run --rm --name orquestador -p 8000:8000 \
+  -e VALIDACION_URL=http://validacion-pdf:8000 \
+  -e EXTRACCION_URL=http://extraccion-texto:8000 \
+  -e PERSISTENCIA_ACTUALIZACIONES_URL=http://persistencia-actualizaciones:8000 \
+  -e PERSISTENCIA_CONSULTAS_URL=http://persistencia-consultas:8000 \
+  -e REQUEST_TIMEOUT_SECONDS=2.5 \
+  -e RETRY_ATTEMPTS=2 \
+  -e RETRY_DELAY_SECONDS=0.25 \
+  orquestador:local
 ```
 
 El proceso escucha en `0.0.0.0` en el puerto `8000` por defecto. Se puede
@@ -26,24 +34,11 @@ seleccionar otro puerto pasando la variable `PORT`; el puerto publicado del
 host debe coincidir con el puerto del contenedor:
 
 ```sh
-docker run --rm --name orquestador -e PORT=8080 -p 8080:8080 orquestador:local
+docker run --rm --name orquestador -e PORT=8080 -p 8080:8080 --env-file .env orquestador:local
 ```
 
 Las URLs de dependencias y la configuración de timeout/retry se proporcionan
-en tiempo de ejecución, nunca durante el build:
-
-```sh
-docker run --rm --name orquestador -p 8000:8000 \
-  -e VALIDACION_URL=http://validation:8000 \
-  -e EXTRACCION_URL=http://extraction:8000 \
-  -e PERSISTENCIA_ACTUALIZACIONES_URL=http://persistence:8000 \
-  -e REQUEST_TIMEOUT_SECONDS=2.5 \
-  -e RETRY_ATTEMPTS=2 \
-  -e RETRY_DELAY_SECONDS=0.25 \
-  orquestador:local
-```
-
-No se deben pasar secretos como argumentos de build. Para valores sensibles,
+en tiempo de ejecución, nunca durante el build. No se deben pasar secretos como argumentos de build. Para valores sensibles,
 utilizar el mecanismo de secrets del entorno que ejecuta el contenedor. Los
 archivos `.env` se excluyen del contexto y no se copian a la imagen.
 
