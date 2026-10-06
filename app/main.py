@@ -1,3 +1,5 @@
+import logging
+import time
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
@@ -9,7 +11,11 @@ from fastapi.responses import JSONResponse
 from app.controllers.pdf_routes import router as pdf_router
 from app.core.composition import build_orchestrator, get_settings
 from app.core.exceptions import ExternalServiceError
+from app.core.logs import configurar_logs, correlation_id_actual
 from app.schemas.pdf_schemas import ErrorResponseSchema, ServiceErrorSchema
+
+configurar_logs()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -62,17 +68,44 @@ def _correlation_id_from(header: str | None) -> str:
 async def correlation_id_middleware(request: Request, call_next):
     correlation_id = _correlation_id_from(request.headers.get("X-Correlation-ID"))
     request.state.correlation_id = correlation_id
-    response = await call_next(request)
-    response.headers["X-Correlation-ID"] = correlation_id
-    return response
+    token = correlation_id_actual.set(correlation_id)
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        logger.info(
+            "method=%s path=%s status=%s duracion_ms=%.1f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            (time.perf_counter() - started) * 1000,
+        )
+        return response
+    finally:
+        correlation_id_actual.reset(token)
 
 
 def error_response(
-    request: Request, status_code: int, code: str, message: str, details: dict
+    request: Request,
+    status_code: int,
+    code: str,
+    message: str,
+    details: dict,
+    exc_info: BaseException | None = None,
 ) -> JSONResponse:
-    """Formato común de errores. El header se agrega acá porque el handler de
-    Exception corre fuera del middleware de correlation ID."""
+    """Formato común de errores. El header y el contexto del log se fijan acá
+    porque el handler de Exception corre fuera del middleware de correlation ID."""
     correlation_id = request.state.correlation_id
+    token = correlation_id_actual.set(correlation_id)
+    logger.log(
+        logging.ERROR if status_code >= 500 else logging.WARNING,
+        "code=%s status=%s message=%s",
+        code,
+        status_code,
+        message,
+        exc_info=exc_info,
+    )
+    correlation_id_actual.reset(token)
     response = ErrorResponseSchema(
         error=ServiceErrorSchema(
             code=code,
@@ -117,7 +150,7 @@ async def request_validation_error_handler(
 
 
 @app.exception_handler(Exception)
-async def unexpected_error_handler(request: Request, _: Exception) -> JSONResponse:
+async def unexpected_error_handler(request: Request, error: Exception) -> JSONResponse:
     return error_response(
-        request, 500, "INTERNAL_ERROR", "Error interno del orquestador", {}
+        request, 500, "INTERNAL_ERROR", "Error interno del orquestador", {}, error
     )

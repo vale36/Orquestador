@@ -40,18 +40,14 @@ class OrchestratorService:
             # documento pudo guardarse aunque la respuesta no llegó. Un error del
             # contrato (409, 400, 422) significa que no se guardó nada.
             logger.warning(
-                "Attempting SAGA compensation checksum=%s correlation_id=%s",
-                extraction.checksum,
-                correlation_id,
+                "Attempting SAGA compensation checksum=%s", extraction.checksum
             )
             try:
                 await self._compensate(extraction.checksum, correlation_id, started_at)
             except Exception as compensation_error:
                 logger.error(
-                    "SAGA compensation failed checksum=%s correlation_id=%s "
-                    "error_type=%s",
+                    "SAGA compensation failed checksum=%s error_type=%s",
                     extraction.checksum,
-                    correlation_id,
                     type(compensation_error).__name__,
                 )
             raise
@@ -66,17 +62,13 @@ class OrchestratorService:
         )
         if document is None or document.created_at < started_at:
             logger.info(
-                "SAGA compensation completed checksum=%s correlation_id=%s "
-                "result=nothing-to-undo",
+                "SAGA compensation completed checksum=%s result=nothing-to-undo",
                 checksum,
-                correlation_id,
             )
             return
         await self._persistence_updates.delete(document.id, correlation_id)
         logger.info(
-            "SAGA compensation completed checksum=%s correlation_id=%s "
-            "result=deleted document_id=%s",
+            "SAGA compensation completed checksum=%s result=deleted document_id=%s",
             checksum,
-            correlation_id,
             document.id,
         )
