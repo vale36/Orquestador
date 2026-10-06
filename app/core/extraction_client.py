@@ -3,9 +3,10 @@ from dataclasses import asdict
 from app.core.document_mapping import extraction_result_from_json
 from app.core.json_http_client import JsonHttpClient
 from app.models.pdf_document import ExtractionResult, PdfRequest
+from app.services.ports import ExtractionPort
 
 
-class ExtractionHttpClient:
+class ExtractionHttpClient(ExtractionPort):
     def __init__(self, http: JsonHttpClient) -> None:
         self._http = http
 

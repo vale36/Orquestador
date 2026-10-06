@@ -176,3 +176,13 @@ async def test_queries_return_none_when_the_checksum_does_not_exist() -> None:
     )
 
     assert document is None
+
+
+async def test_documents_with_dates_outside_utc_are_rejected() -> None:
+    body = DOCUMENT_BODY | {"created_at": "2026-09-14T18:00:00+01:00"}
+    recorder = Recorder(httpx.Response(200, json=body))
+
+    with pytest.raises(DependencyUnavailableError):
+        await PersistenceQueriesHttpClient(recorder.http()).find_by_checksum(
+            "abc123", CORRELATION_ID
+        )

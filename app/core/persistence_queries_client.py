@@ -1,9 +1,10 @@
 from app.core.document_mapping import document_from_json
 from app.core.json_http_client import JsonHttpClient
 from app.models.pdf_document import PdfDocument
+from app.services.ports import PersistenceQueriesPort
 
 
-class PersistenceQueriesHttpClient:
+class PersistenceQueriesHttpClient(PersistenceQueriesPort):
     def __init__(self, http: JsonHttpClient) -> None:
         self._http = http
 

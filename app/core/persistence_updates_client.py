@@ -3,9 +3,10 @@ from uuid import UUID
 from app.core.document_mapping import document_from_json, extraction_result_to_json
 from app.core.json_http_client import JsonHttpClient
 from app.models.pdf_document import ExtractionResult, PdfDocument
+from app.services.ports import PersistenceUpdatesPort
 
 
-class PersistenceUpdatesHttpClient:
+class PersistenceUpdatesHttpClient(PersistenceUpdatesPort):
     def __init__(self, http: JsonHttpClient) -> None:
         self._http = http
 

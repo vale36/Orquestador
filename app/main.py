@@ -1,18 +1,30 @@
+from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.controllers.pdf_routes import router as pdf_router
+from app.core.composition import build_orchestrator, get_settings
+from app.core.exceptions import ExternalServiceError
 from app.schemas.pdf_schemas import ErrorResponseSchema, ServiceErrorSchema
-from app.services.ports import (
-    ExternalServiceError,
-)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Settings se valida al arrancar: una variable faltante impide iniciar la app.
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as http:
+        app.state.orchestrator_service = build_orchestrator(settings, http)
+        yield
+
 
 app = FastAPI(
     title="Orquestador",
     version="1.0.0",
+    lifespan=lifespan,
 )
 app.include_router(pdf_router)
 
@@ -54,12 +66,19 @@ async def external_service_error_handler(
     request: Request,
     error: ExternalServiceError,
 ) -> JSONResponse:
-    response_status = CONTRACT_ERROR_STATUS.get(error.error.code, 500)
-    response = ErrorResponseSchema(error=error.error)
+    correlation_id = _request_correlation_id(request)
+    response = ErrorResponseSchema(
+        error=ServiceErrorSchema(
+            code=error.code,
+            message=error.message,
+            details=error.details,
+            correlation_id=UUID(correlation_id),
+        )
+    )
     return JSONResponse(
-        status_code=response_status,
+        status_code=CONTRACT_ERROR_STATUS.get(error.code, 500),
         content=response.model_dump(mode="json"),
-        headers={"X-Correlation-ID": _request_correlation_id(request)},
+        headers={"X-Correlation-ID": correlation_id},
     )
 
 

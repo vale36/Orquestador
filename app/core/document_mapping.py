@@ -1,7 +1,7 @@
 """Traducción entre el JSON del contrato y los modelos de dominio."""
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from app.core.exceptions import DependencyUnavailableError
@@ -30,8 +30,8 @@ def document_from_json(data: dict, service_name: str) -> PdfDocument:
             texto=data["texto"],
             tamano_bytes=data["tamano_bytes"],
             paginas=data["paginas"],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"]),
+            created_at=_utc(data["created_at"]),
+            updated_at=_utc(data["updated_at"]),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise _invalid(service_name) from error
@@ -39,6 +39,14 @@ def document_from_json(data: dict, service_name: str) -> PdfDocument:
 
 def extraction_result_to_json(result: ExtractionResult) -> dict:
     return asdict(result)
+
+
+def _utc(value: str) -> datetime:
+    """Contrato: fechas ISO-8601 en UTC."""
+    moment = datetime.fromisoformat(value)
+    if moment.utcoffset() != timedelta(0):
+        raise ValueError("la fecha no está en UTC")
+    return moment
 
 
 def _invalid(service_name: str) -> DependencyUnavailableError:

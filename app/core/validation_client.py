@@ -2,9 +2,10 @@ from dataclasses import asdict
 
 from app.core.json_http_client import JsonHttpClient
 from app.models.pdf_document import PdfRequest
+from app.services.ports import ValidationPort
 
 
-class ValidationHttpClient:
+class ValidationHttpClient(ValidationPort):
     def __init__(self, http: JsonHttpClient) -> None:
         self._http = http
 
