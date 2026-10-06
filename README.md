@@ -1,92 +1,62 @@
 # Orquestador
 
 Microservicio **Orquestador** del proyecto "De Monolito a Microservicios (PDF
-Extractext)", implementado en Python con FastAPI y alineado con los schemas de
-contrato PDF compartido versión 1.0.0.
+Extractext)", implementado en Python con FastAPI y alineado con el contrato
+compartido `microservicios-pdf` v1.0.0.
 
 El Orquestador recibe un PDF codificado en Base64 como JSON y coordina los
 microservicios de validación, extracción y persistencia. No tiene base de datos
-propia, no utiliza `pypdf` y no contiene la lógica de esos microservicios.
+propia, no utiliza `pypdf` ni Redis y no contiene la lógica de esos
+microservicios.
 
 ## Requisitos
 
 - Python 3.11 o superior.
 - [`uv`](https://docs.astral.sh/uv/) para instalar y ejecutar el entorno.
-- Acceso a los microservicios de validación, extracción y persistencia de
-  actualizaciones para procesar `POST /pdf`.
-
-`GET /health` no requiere que las dependencias externas estén disponibles ni
-que sus URLs estén configuradas.
+- Acceso a los microservicios de validación, extracción y persistencia
+  (actualizaciones y consultas) para procesar `POST /pdf`.
 
 ## Instalación desde un clon limpio
-
-Clonar el repositorio y entrar al directorio del Orquestador:
 
 ```sh
 git clone <url-del-repositorio>
 cd Orquestador
-```
-
-Sincronizar el entorno usando las versiones fijadas en `uv.lock`:
-
-```sh
 uv sync --locked
 ```
 
 ## Configuración
 
-Los clientes HTTP leen su configuración del entorno al crear el servicio. Para
-ejecutar `POST /pdf` se deben definir estas variables:
+Todas las variables son obligatorias y se validan al arrancar con
+`pydantic-settings`: si falta alguna o tiene un valor inválido, la aplicación
+no inicia.
 
 | Variable | Uso |
 | --- | --- |
-| `VALIDACION_URL` | URL base del microservicio de validación. El cliente agrega `POST /validar`. |
-| `EXTRACCION_URL` | URL base del microservicio de extracción. El cliente agrega `POST /extraer`. |
-| `PERSISTENCIA_ACTUALIZACIONES_URL` | URL base del servicio de persistencia de actualizaciones. El cliente agrega `POST /pdf`. |
-| `REQUEST_TIMEOUT_SECONDS` | Timeout positivo y finito en segundos para cada intento HTTP. |
-| `RETRY_ATTEMPTS` | Cantidad de reintentos adicionales al primer intento; entero no negativo. |
-| `RETRY_DELAY_SECONDS` | Demora finita y no negativa entre reintentos, en segundos. |
+| `VALIDACION_URL` | URL base de `validacion-pdf` (`POST /validar`). |
+| `EXTRACCION_URL` | URL base de `extraccion-texto` (`POST /extraer`). |
+| `PERSISTENCIA_ACTUALIZACIONES_URL` | URL base de `persistencia-actualizaciones` (`POST /pdf`, `DELETE /pdf/{id}`). |
+| `PERSISTENCIA_CONSULTAS_URL` | URL base de `persistencia-consultas` (`GET /pdf/checksum/{checksum}`, para la compensación SAGA). |
+| `REQUEST_TIMEOUT_SECONDS` | Timeout de cada llamada, mayor que cero. |
+| `RETRY_ATTEMPTS` | Reintentos además del primer intento; entero no negativo. |
+| `RETRY_DELAY_SECONDS` | Demora entre reintentos, no negativa. |
 
-Las tres variables de URL son bases sin la ruta de operación indicada. No hay
-una URL de persistencia de consultas utilizada por el flujo actual.
-
-El archivo `.env.example` muestra las variables de configuración, pero hay que
-completar las URLs y valores de timeout/retry con los del entorno de ejecución.
-Para desarrollo local se puede copiar como `.env` y pasar ese archivo a `uv`:
+`.env.example` tiene todas las claves sin valores. Para desarrollo local:
 
 ```powershell
 Copy-Item .env.example .env
-# Editar .env con los valores del entorno
+# Completar .env con los valores del entorno
 ```
 
-No guardar credenciales ni secretos en el repositorio. El archivo `.env` real
-debe permanecer local y no debe incluirse en imágenes Docker.
+El archivo `.env` real queda local: está en `.gitignore` y en `.dockerignore`.
 
 ## Ejecución local
 
-Con las variables de entorno configuradas, arrancar Uvicorn desde la raíz:
-
 ```powershell
-uv run --env-file .env uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-La aplicación queda disponible en `http://localhost:8000`. Para ejecutarla sin
-archivo `.env`, se pueden exportar las mismas variables en el entorno de la
-terminal y omitir `--env-file .env`.
-
-## Tests
-
-Ejecutar la suite completa desde la raíz del repositorio:
-
-```sh
-uv run --with pytest python -m pytest
-```
-
-`pytest` no forma parte de las dependencias de runtime declaradas en
-`pyproject.toml`; `uv run --with pytest` lo proporciona para esa ejecución sin
-agregarlo a las dependencias de producción. Los tests de integración usan la
-app real y dobles de los ports. Los tests de clientes sustituyen el transporte
-HTTP: no requieren microservicios, MongoDB ni Redis reales.
+La aplicación lee `.env` si existe; también se pueden exportar las variables en
+la terminal.
 
 ## Endpoints
 
@@ -101,11 +71,7 @@ Recibe JSON con `archivo_base64` y `nombre`:
 }
 ```
 
-Si se envía `X-Correlation-ID`, debe ser un UUID válido; ese mismo UUID se
-propaga a los clientes y se devuelve en el header de respuesta. Si se omite, el
-Orquestador genera un UUID v4.
-
-Ante éxito, responde `201 Created` con el documento devuelto por persistencia:
+Ante éxito responde `201 Created` con el documento devuelto por persistencia:
 
 ```json
 {
@@ -120,126 +86,162 @@ Ante éxito, responde `201 Created` con el documento devuelto por persistencia:
 }
 ```
 
-Los valores son ilustrativos. Los campos y tipos están definidos por
-`PdfDocumentResponseSchema`; las fechas deben ser ISO-8601 en UTC.
-El `id` pertenece al documento creado y lo devuelve persistencia.
+Los errores usan el formato común `{"error": {"code", "message", "details",
+"correlation_id"}}`. El status HTTP sale del código, según la tabla del
+contrato, así el error de una dependencia llega al cliente con el mismo
+significado:
 
-Los errores usan el formato común `{"error": {...}}`, con `code`, `message`,
-`details` y `correlation_id`. Los status implementados son:
+| Código | HTTP | Ejemplo |
+| --- | --- | --- |
+| `VALIDATION_ERROR` | `400` | Falta `archivo_base64` o `nombre`. |
+| `PDF_TOO_LARGE` | `413` | Lo rechazó validación. |
+| `PDF_INVALID`, `PDF_CORRUPTED` | `422` | Lo rechazó validación o extracción. |
+| `DUPLICATE_CHECKSUM` | `409` | El PDF ya estaba guardado. |
+| `DEPENDENCY_UNAVAILABLE` | `503` | Una dependencia no respondió (timeout, conexión) o respondió fuera del contrato. |
+| `DATABASE_ERROR` | `503` | La base de persistencia no responde. |
+| `INTERNAL_ERROR` | `500` | Error no previsto. |
 
-| HTTP | Caso |
-| --- | --- |
-| `422` | Request inválido o rechazo del microservicio de validación. |
-| `502` | Error del microservicio de extracción o persistencia. |
-| `503` | Dependencia no disponible, por ejemplo tras agotar reintentos o un timeout. |
-
-Para errores de validación del request, el código es
-`REQUEST_VALIDATION_ERROR`. Los códigos de errores recibidos de dependencias se
-propagan según el contrato que devuelvan.
+Los errores de validación del request no incluyen el valor recibido, para no
+devolver ni registrar el PDF en Base64.
 
 ### `GET /health`
 
-Responde `200 OK` con `{"status": "ok"}` cuando la aplicación está funcionando.
-No consulta bases de datos ni llama a los otros microservicios.
+Responde `200 OK` con `{"status": "ok"}`. No llama a los otros microservicios.
 
-## Dependencias y flujo
+### Correlation ID
 
-La arquitectura separa la entrada HTTP, la coordinación del caso de uso y las
-integraciones externas:
+Un middleware fija el `X-Correlation-ID` de cada request: si llega un UUID lo
+reutiliza; si falta o no es un UUID, genera uno nuevo (el contrato identifica
+con UUID). Se envía a cada dependencia, se devuelve en todas las respuestas
+(incluido `/health`) y aparece en el cuerpo de los errores.
 
-```text
-FastAPI controller -> OrchestratorService -> service ports -> HTTP clients
-                         schemas compartidos entre capas
-```
-
-El controller no lleva la lógica de coordinación. `OrchestratorService`
-depende de interfaces (`ValidationPort`, `ExtractionPort` y
-`PersistenceUpdatesPort`); la factoría inyecta los clientes HTTP concretos.
-Esta separación permite probar el flujo con dobles de los ports sin efectuar
-llamadas de red.
-
-El Orquestador se comunica mediante clientes HTTP con:
-
-| Microservicio | Configuración | Operación utilizada |
-| --- | --- | --- |
-| Validación | `VALIDACION_URL` | `POST /validar` |
-| Extracción | `EXTRACCION_URL` | `POST /extraer` |
-| Persistencia de actualizaciones | `PERSISTENCIA_ACTUALIZACIONES_URL` | `POST /pdf` |
-
-El flujo de `POST /pdf` es:
-
-1. El controller valida la forma del JSON mediante `PdfRequestSchema`, obtiene
-   o genera el correlation ID e invoca `OrchestratorService`.
-2. El Orchestrator solicita la validación del request.
-3. Si la validación es exitosa, solicita extracción de texto y checksum.
-4. Con el resultado de extracción, construye la solicitud de creación y la
-   envía a persistencia.
-5. Devuelve al consumidor la respuesta de persistencia.
-
-Si falla validación, no se llama a extracción ni persistencia. Si falla
-extracción, no se llama a persistencia. El controller maneja HTTP; la
-coordinación pertenece al servicio y los puertos desacoplan al servicio de sus
-clientes concretos. El Orquestador no consulta una base de datos propia.
-
-## Timeout y retry
-
-Los clientes HTTP reutilizan `REQUEST_TIMEOUT_SECONDS`,
-`RETRY_ATTEMPTS` y `RETRY_DELAY_SECONDS` para cada operación. El número de
-intentos totales es el intento inicial más la cantidad configurada de
-reintentos. El cliente reintenta timeouts, errores de conexión y respuestas
-HTTP `408`, `429`, `500`, `502`, `503` o `504`; los demás errores HTTP no son
-reintentables por esta política.
-
-## Compensación SAGA
-
-Si la creación en persistencia falla después de una validación y extracción
-exitosas, `OrchestratorService` intenta
-`PersistenceUpdatesPort.compensate(checksum, correlation_id)`. Usa el checksum
-de extracción y el mismo correlation ID del flujo. No compensa ante fallos de
-validación o extracción ni cuando la creación termina correctamente. El
-contrato del port requiere que la compensación repetida sea segura y tolere que
-el recurso ya no exista.
-
-**Limitación de la integración actual:** `PersistenceUpdatesHttpClient`
-implementa la creación, pero todavía no implementa `compensate()`. Este
-repositorio tampoco documenta una ruta HTTP contractual para esa operación.
-Por eso la orquestación intenta la llamada del port y registra el error si no
-se puede ejecutar; el error original de persistencia sigue siendo el principal.
-No se debe asumir que la compensación remota está operativa ni inventar una
-ruta hasta que exista un contrato acordado con el servicio de persistencia.
-
-## Decisiones técnicas y deudas conocidas
-
-- FastAPI expone los endpoints; Pydantic define los schemas; `OrchestratorService`
-  depende de ports y los clientes HTTP implementan las comunicaciones externas.
-- La configuración de dependencias se resuelve mediante
-  `get_orchestrator_service`; no se agrega persistencia local ni lógica de PDF.
-- El retry está acotado y parametrizado por entorno. Los tests comprueban
-  timeout/retry y los flujos con dobles, sin requerir servicios externos.
-- La integración del método `compensate()` en el cliente HTTP queda pendiente
-  hasta definir su contrato externo.
-- `.env.example` incluye `PERSISTENCIA_CONSULTAS_URL`, pero el código actual no
-  utiliza esa variable: no es necesaria para este flujo.
-- `pytest` no está declarado como dependencia de desarrollo; los comandos de
-  tests lo resuelven de forma efímera mediante `uv run --with pytest`.
-
-## Docker
-
-La imagen usa las dependencias fijadas, escucha en el puerto `8000` por defecto,
-permite cambiarlo mediante `PORT` y ejecuta la aplicación con un usuario sin
-privilegios. Consultar [docs/DOCKER.md](docs/DOCKER.md) para build, ejecución,
-healthcheck y configuración en contenedor.
-
-## Estructura relevante
+## Arquitectura
 
 ```text
 app/
-├── main.py
-├── clients/       # Clientes HTTP y política compartida de timeout/retry
-├── controllers/   # Endpoints FastAPI
-├── schemas/       # Contratos de request, response y errores
-└── services/      # Orquestación, ports y composición de dependencias
-tests/
-├── integration/
-└── unit/
+├── main.py                        # lifespan, middleware, errores, logs
+├── controllers/pdf_routes.py      # POST /pdf
+├── schemas/pdf_schemas.py         # contrato HTTP público (Pydantic)
+├── services/
+│   ├── orchestrator.py            # flujo y compensación SAGA
+│   └── ports.py                   # puertos ABC async hacia las dependencias
+├── models/pdf_document.py         # PdfRequest, ExtractionResult, PdfDocument
+└── core/
+    ├── composition.py             # único lugar donde se arman los adaptadores
+    ├── config.py                  # Settings (pydantic-settings)
+    ├── json_http_client.py        # httpx async: timeout, reintentos, errores
+    ├── validation_client.py       # adaptadores que implementan los puertos
+    ├── extraction_client.py
+    ├── persistence_updates_client.py
+    ├── persistence_queries_client.py
+    ├── document_mapping.py        # JSON del contrato ↔ modelos de dominio
+    ├── exceptions.py
+    └── logs.py
 ```
+
+Flujo de dependencias: `controller → OrchestratorService → puertos ← adaptadores
+httpx`. El service no importa FastAPI, httpx ni los schemas Pydantic: trabaja
+con los modelos de dominio. El lifespan crea un único `httpx.AsyncClient` con
+`REQUEST_TIMEOUT_SECONDS` y lo cierra al apagar.
+
+Flujo de `POST /pdf`:
+
+1. Validar el PDF (`validacion-pdf`).
+2. Extraer texto, páginas y checksum (`extraccion-texto`).
+3. Crear el documento (`persistencia-actualizaciones`).
+4. Devolver el documento creado.
+
+Si falla la validación no se llama a extracción; si falla la extracción no se
+llama a persistencia.
+
+**Async de punta a punta.** El endpoint y los adaptadores son async: mientras
+espera a una dependencia, el orquestador no ocupa un hilo y puede atender
+otras requests.
+
+## Timeout y retry
+
+Cada llamada usa `REQUEST_TIMEOUT_SECONDS`. Las operaciones idempotentes
+(validar, extraer, consultar por checksum, borrar) se reintentan
+`RETRY_ATTEMPTS` veces, con `RETRY_DELAY_SECONDS` entre intentos
+(`asyncio.sleep`, sin bloquear), ante timeouts, errores de conexión y
+respuestas `408`, `429`, `500`, `502`, `503` o `504`.
+
+El alta en persistencia (`POST /pdf`) **no se reintenta**: si el primer intento
+se guardó pero la respuesta se perdió, un reintento recibiría `409`. Ese caso
+lo resuelve la compensación SAGA.
+
+El cortocircuito (circuit breaker) no se programa: lo aplica Traefik.
+
+## Compensación SAGA
+
+Se compensa **solo cuando el resultado del alta es incierto**: persistencia no
+respondió (timeout, conexión caída o respuesta inválida). En ese caso el
+documento pudo haberse guardado aunque la respuesta no llegó.
+
+La compensación:
+
+1. Busca el checksum en `persistencia-consultas`.
+2. Si el documento existe y su `created_at` es posterior al inicio de esta
+   request, lo borra con `DELETE /pdf/{id}` en `persistencia-actualizaciones`.
+3. Si no existe, o ya existía desde antes, no hace nada.
+
+Es **idempotente** (un `404` al borrar también es éxito) y queda **registrada
+en los logs** con su resultado (`deleted`, `nothing-to-undo` o `failed`). Si la
+compensación falla, se registra y el cliente recibe el error original del alta.
+
+**No se compensa** ante un error del contrato de persistencia (`409`, `400`,
+`422`): significa que no se guardó nada. Ante un `409`, borrar por checksum
+eliminaría el documento que ya existía.
+
+## Logs
+
+Van a `stdout`, sin archivos, y cada línea lleva el `correlation_id`: el
+middleware lo guarda en una `ContextVar` y una *record factory* lo agrega a
+cada registro, así lo tienen también los logs de la SAGA y de los reintentos.
+
+```text
+2026-10-06 20:30:01,905 INFO app.main correlation_id=8f6f7c3e-... method=POST path=/pdf status=201 duracion_ms=48.2
+2026-10-06 20:30:02,114 WARNING app.core.json_http_client correlation_id=1b2c... reintentando POST /extraer en extraccion-texto intento=2 de 3 motivo=ReadTimeout
+```
+
+El access log de uvicorn está desactivado en la imagen porque no lleva el
+`correlation_id`.
+
+## Tests y calidad
+
+```sh
+uv run pytest
+uv run ruff check app tests
+uv run black --check app tests
+```
+
+La suite es hermética: no necesita los otros microservicios ni `.env`
+(`tests/conftest.py` fija la configuración e ignora el `.env` local).
+
+- **Servicio:** flujo, orden de las llamadas, corte ante errores y cada caso de
+  la SAGA, con dobles de los puertos (`tests/doubles.py`).
+- **Adaptadores:** rutas, cuerpos, `X-Correlation-ID`, reintentos, no
+  reintento del alta, `404` esperados y respuestas fuera del contrato, con
+  `httpx.MockTransport` inyectado.
+- **API:** la app real con los dobles inyectados por `app.dependency_overrides`:
+  respuesta del contrato, cada código de error, correlation ID, logs, y un
+  flujo completo con los adaptadores reales y un transporte HTTP de prueba
+  (incluido un reintento).
+
+Queda fuera a propósito: la integración contra los servicios reales, que se
+prueba en el repositorio de integración con Docker Compose.
+
+## Docker
+
+Ver [docs/DOCKER.md](docs/DOCKER.md).
+
+## Deuda técnica
+
+- **Historial de TDD.** La primera entrega implementó el service antes que sus
+  tests y trajo la mayoría de los `feat` con código y tests juntos. Desde los
+  arreglos de la auditoría (rama `fix/auditoria-orquestador`), cada cambio de
+  comportamiento sigue rojo → verde.
+- **Margen de la SAGA.** "Creado durante esta request" se decide comparando
+  `created_at` con el inicio de la request, al segundo. Si persistencia y el
+  orquestador corren con relojes muy desincronizados, la comparación puede
+  fallar; en Docker Compose comparten el reloj del host.

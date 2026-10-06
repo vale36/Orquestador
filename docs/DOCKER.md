@@ -14,8 +14,11 @@ final.
 
 ## Ejecutar
 
+La aplicación no arranca sin sus siete variables de entorno (se validan al
+iniciar). Ejemplo completo:
+
 ```sh
-docker run --rm --name orquestador -p 8000:8000 orquestador:local
+docker run --rm --name orquestador -p 8000:8000   -e VALIDACION_URL=http://validacion-pdf:8000   -e EXTRACCION_URL=http://extraccion-texto:8000   -e PERSISTENCIA_ACTUALIZACIONES_URL=http://persistencia-actualizaciones:8000   -e PERSISTENCIA_CONSULTAS_URL=http://persistencia-consultas:8000   -e REQUEST_TIMEOUT_SECONDS=2.5   -e RETRY_ATTEMPTS=2   -e RETRY_DELAY_SECONDS=0.25   orquestador:local
 ```
 
 El proceso escucha en `0.0.0.0` en el puerto `8000` por defecto. Se puede
