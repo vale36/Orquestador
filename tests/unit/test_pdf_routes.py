@@ -203,9 +203,9 @@ def test_post_pdf_returns_common_error_for_invalid_request(monkeypatch) -> None:
         {"X-Correlation-ID": CORRELATION_ID},
     )
 
-    assert response_status == 422
+    assert response_status == 400
     assert headers["x-correlation-id"] == CORRELATION_ID
-    assert response_body["error"]["code"] == "REQUEST_VALIDATION_ERROR"
+    assert response_body["error"]["code"] == "VALIDATION_ERROR"
     assert response_body["error"]["correlation_id"] == CORRELATION_ID
     assert service.calls == []
     assert REQUEST_BODY["archivo_base64"] not in json.dumps(response_body)
@@ -231,8 +231,8 @@ def test_invalid_request_without_correlation_id_returns_generated_id(
 
     correlation_id = headers["x-correlation-id"]
     UUID(correlation_id)
-    assert response_status == 422
-    assert response_body["error"]["code"] == "REQUEST_VALIDATION_ERROR"
+    assert response_status == 400
+    assert response_body["error"]["code"] == "VALIDATION_ERROR"
     assert response_body["error"]["correlation_id"] == correlation_id
     assert service.calls == []
 
