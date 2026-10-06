@@ -13,3 +13,18 @@ class PdfDocument:
     paginas: int
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class PdfRequest:
+    archivo_base64: str
+    nombre: str
+
+
+@dataclass(frozen=True)
+class ExtractionResult:
+    nombre: str
+    texto: str
+    checksum: str
+    tamano_bytes: int
+    paginas: int
