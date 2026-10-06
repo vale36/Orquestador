@@ -120,3 +120,22 @@ async def request_validation_error_handler(
         content=response.model_dump(mode="json"),
         headers={"X-Correlation-ID": correlation_id},
     )
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, _: Exception) -> JSONResponse:
+    # Corre fuera del middleware de correlation ID: el header se agrega acá.
+    correlation_id = _request_correlation_id(request)
+    response = ErrorResponseSchema(
+        error=ServiceErrorSchema(
+            code="INTERNAL_ERROR",
+            message="Error interno del orquestador",
+            details={},
+            correlation_id=UUID(correlation_id),
+        )
+    )
+    return JSONResponse(
+        status_code=500,
+        content=response.model_dump(mode="json"),
+        headers={"X-Correlation-ID": correlation_id},
+    )
