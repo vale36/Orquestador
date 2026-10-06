@@ -71,7 +71,7 @@ async def request_validation_error_handler(
     correlation_id = _request_correlation_id(request)
     response = ErrorResponseSchema(
         error=ServiceErrorSchema(
-            code="REQUEST_VALIDATION_ERROR",
+            code="VALIDATION_ERROR",
             message="La solicitud no cumple el contrato",
             details={
                 "errors": [
@@ -87,7 +87,7 @@ async def request_validation_error_handler(
         )
     )
     return JSONResponse(
-        status_code=422,
+        status_code=400,
         content=response.model_dump(mode="json"),
         headers={"X-Correlation-ID": correlation_id},
     )
