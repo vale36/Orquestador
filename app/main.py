@@ -1,17 +1,13 @@
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.controllers.pdf_routes import router as pdf_router
 from app.schemas.pdf_schemas import ErrorResponseSchema, ServiceErrorSchema
 from app.services.ports import (
-    DependencyUnavailableError,
     ExternalServiceError,
-    ExtractionServiceError,
-    PersistenceServiceError,
-    ValidationServiceError,
 )
 
 app = FastAPI(
@@ -26,11 +22,18 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-SERVICE_ERROR_STATUS = {
-    ValidationServiceError: 422,
-    ExtractionServiceError: status.HTTP_502_BAD_GATEWAY,
-    PersistenceServiceError: status.HTTP_502_BAD_GATEWAY,
-    DependencyUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+# Tabla de errores comunes del contrato microservicios-pdf: el status sale del código,
+# así el error de una dependencia llega al cliente con el mismo significado.
+CONTRACT_ERROR_STATUS = {
+    "VALIDATION_ERROR": 400,
+    "PDF_INVALID": 422,
+    "PDF_TOO_LARGE": 413,
+    "PDF_CORRUPTED": 422,
+    "RESOURCE_NOT_FOUND": 404,
+    "DUPLICATE_CHECKSUM": 409,
+    "DEPENDENCY_UNAVAILABLE": 503,
+    "DATABASE_ERROR": 503,
+    "INTERNAL_ERROR": 500,
 }
 
 
@@ -51,10 +54,7 @@ async def external_service_error_handler(
     request: Request,
     error: ExternalServiceError,
 ) -> JSONResponse:
-    response_status = SERVICE_ERROR_STATUS.get(
-        type(error),
-        status.HTTP_502_BAD_GATEWAY,
-    )
+    response_status = CONTRACT_ERROR_STATUS.get(error.error.code, 500)
     response = ErrorResponseSchema(error=error.error)
     return JSONResponse(
         status_code=response_status,
