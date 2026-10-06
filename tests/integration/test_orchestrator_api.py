@@ -288,7 +288,7 @@ def test_extraction_error_returns_common_error_without_persistence(
     monkeypatch,
 ) -> None:
     extraction_error = ExtractionServiceError(
-        service_error("EXTRACTION_FAILED", "extraction failed")
+        service_error("PDF_CORRUPTED", "extraction failed")
     )
     validation = FakeValidationPort()
     extraction = FakeExtractionPort(result=extraction_error)
@@ -302,7 +302,7 @@ def test_extraction_error_returns_common_error_without_persistence(
         {"X-Correlation-ID": CORRELATION_ID},
     )
 
-    assert status == 502
+    assert status == 422
     assert response_headers["x-correlation-id"] == CORRELATION_ID
     assert response_body == {"error": extraction_error.error.model_dump(mode="json")}
     assert len(validation.calls) == 1
@@ -329,7 +329,7 @@ def test_persistence_error_returns_common_error_and_compensates(
         {"X-Correlation-ID": CORRELATION_ID},
     )
 
-    assert status == 502
+    assert status == 503
     assert response_headers["x-correlation-id"] == CORRELATION_ID
     assert response_body == {"error": persistence_error.error.model_dump(mode="json")}
     assert len(persistence.create_calls) == 1

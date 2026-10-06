@@ -245,16 +245,24 @@ def test_invalid_request_without_correlation_id_returns_generated_id(
             422,
         ),
         (
-            ExtractionServiceError(
-                service_error("EXTRACTION_FAILED", "extraction failed")
-            ),
-            502,
+            ValidationServiceError(service_error("PDF_TOO_LARGE", "too large")),
+            413,
         ),
         (
-            PersistenceServiceError(
-                service_error("PERSISTENCE_FAILED", "persistence failed")
-            ),
-            502,
+            ExtractionServiceError(service_error("PDF_CORRUPTED", "corrupted")),
+            422,
+        ),
+        (
+            PersistenceServiceError(service_error("DUPLICATE_CHECKSUM", "duplicate")),
+            409,
+        ),
+        (
+            PersistenceServiceError(service_error("DATABASE_ERROR", "db down")),
+            503,
+        ),
+        (
+            ExtractionServiceError(service_error("INTERNAL_ERROR", "bug")),
+            500,
         ),
         (
             DependencyUnavailableError(
