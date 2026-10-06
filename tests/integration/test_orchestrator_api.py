@@ -116,9 +116,9 @@ class FakePersistencePort:
     result: PdfDocumentResponseSchema | Exception = field(
         default_factory=lambda: CREATED_DOCUMENT
     )
-    create_calls: list[
-        tuple[PersistenceCreateRequestSchema, str]
-    ] = field(default_factory=list)
+    create_calls: list[tuple[PersistenceCreateRequestSchema, str]] = field(
+        default_factory=list
+    )
     compensation_calls: list[tuple[str, str]] = field(default_factory=list)
 
     def create(

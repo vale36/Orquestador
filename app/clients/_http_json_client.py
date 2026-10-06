@@ -31,33 +31,23 @@ class HttpJsonClient:
         self._base_url = self._required_environment_value(
             url_environment_variable
         ).rstrip("/")
-        timeout_value = self._required_environment_value(
-            "REQUEST_TIMEOUT_SECONDS"
-        )
+        timeout_value = self._required_environment_value("REQUEST_TIMEOUT_SECONDS")
         try:
             self._timeout_seconds = float(timeout_value)
         except ValueError as error:
-            raise ValueError(
-                "REQUEST_TIMEOUT_SECONDS must be a number"
-            ) from error
+            raise ValueError("REQUEST_TIMEOUT_SECONDS must be a number") from error
         if self._timeout_seconds <= 0:
             raise ValueError("REQUEST_TIMEOUT_SECONDS must be greater than zero")
         if not math.isfinite(self._timeout_seconds):
             raise ValueError("REQUEST_TIMEOUT_SECONDS must be finite")
-        retry_attempts_value = self._required_environment_value(
-            "RETRY_ATTEMPTS"
-        )
+        retry_attempts_value = self._required_environment_value("RETRY_ATTEMPTS")
         try:
             self._retry_attempts = int(retry_attempts_value)
         except ValueError as error:
-            raise ValueError(
-                "RETRY_ATTEMPTS must be a non-negative integer"
-            ) from error
+            raise ValueError("RETRY_ATTEMPTS must be a non-negative integer") from error
         if self._retry_attempts < 0:
             raise ValueError("RETRY_ATTEMPTS must be a non-negative integer")
-        retry_delay_value = self._required_environment_value(
-            "RETRY_DELAY_SECONDS"
-        )
+        retry_delay_value = self._required_environment_value("RETRY_DELAY_SECONDS")
         try:
             self._retry_delay_seconds = float(retry_delay_value)
         except ValueError as error:
@@ -68,9 +58,7 @@ class HttpJsonClient:
             not math.isfinite(self._retry_delay_seconds)
             or self._retry_delay_seconds < 0
         ):
-            raise ValueError(
-                "RETRY_DELAY_SECONDS must be a finite non-negative number"
-            )
+            raise ValueError("RETRY_DELAY_SECONDS must be a finite non-negative number")
         self._service_name = service_name
 
     @staticmethod
@@ -126,13 +114,10 @@ class HttpJsonClient:
                 ) as response:
                     return response.read()
             except urllib.error.HTTPError as error:
-                if (
-                    error.code in RETRYABLE_HTTP_STATUSES
-                    and self._wait_before_retry(
-                        attempt,
-                        correlation_id,
-                        f"HTTP {error.code}",
-                    )
+                if error.code in RETRYABLE_HTTP_STATUSES and self._wait_before_retry(
+                    attempt,
+                    correlation_id,
+                    f"HTTP {error.code}",
                 ):
                     error.close()
                     continue
@@ -151,7 +136,7 @@ class HttpJsonClient:
                         error,
                         "connection error",
                     )
-            except (TimeoutError, socket.timeout) as error:
+            except TimeoutError as error:
                 self._retry_or_raise_timeout(
                     attempt,
                     correlation_id,
@@ -228,7 +213,7 @@ class HttpJsonClient:
             self._raise_unavailable(
                 correlation_id,
                 f"{self._service_name} returned HTTP {error.code} with "
-                f"an invalid error response: {parse_error}"
+                f"an invalid error response: {parse_error}",
             )
 
         raise error_schema(service_error) from error

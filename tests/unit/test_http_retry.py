@@ -117,7 +117,9 @@ def test_retries_timeout_exactly_as_configured_and_then_succeeds(
     assert "JVBERi0xLjQK" not in caplog.text
 
 
-def test_retry_exhaustion_is_finite_and_propagates_dependency_error(monkeypatch) -> None:
+def test_retry_exhaustion_is_finite_and_propagates_dependency_error(
+    monkeypatch,
+) -> None:
     configure_environment(monkeypatch, attempts="3", delay="0")
     calls = []
 

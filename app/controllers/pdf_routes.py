@@ -37,9 +37,7 @@ def create_pdf(
     request: Request,
     response: Response,
     correlation_id: UUID | None = Header(default=None, alias="X-Correlation-ID"),
-    orchestrator_service: OrchestratorService = Depends(
-        get_orchestrator_service
-    ),
+    orchestrator_service: OrchestratorService = Depends(get_orchestrator_service),
 ) -> PdfDocumentResponseSchema:
     request_correlation_id = str(correlation_id or uuid4())
     request.state.correlation_id = request_correlation_id

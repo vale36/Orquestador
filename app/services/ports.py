@@ -54,8 +54,7 @@ class ValidationPort(Protocol):
         self,
         request: PdfRequestSchema,
         correlation_id: str,
-    ) -> ValidationSuccessSchema:
-        ...
+    ) -> ValidationSuccessSchema: ...
 
 
 @runtime_checkable
@@ -72,8 +71,7 @@ class ExtractionPort(Protocol):
         self,
         request: PdfRequestSchema,
         correlation_id: str,
-    ) -> ExtractionResponseSchema:
-        ...
+    ) -> ExtractionResponseSchema: ...
 
 
 @runtime_checkable
@@ -91,8 +89,7 @@ class PersistenceUpdatesPort(Protocol):
         self,
         request: PersistenceCreateRequestSchema,
         correlation_id: str,
-    ) -> PdfDocumentResponseSchema:
-        ...
+    ) -> PdfDocumentResponseSchema: ...
 
     def compensate(
         self,

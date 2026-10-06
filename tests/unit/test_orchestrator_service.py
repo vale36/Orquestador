@@ -112,9 +112,9 @@ class FakePersistenceUpdatesPort:
         default_factory=lambda: CREATED_DOCUMENT.model_copy()
     )
     compensation_result: Exception | None = None
-    calls: list[
-        tuple[PersistenceCreateRequestSchema, str]
-    ] = field(default_factory=list)
+    calls: list[tuple[PersistenceCreateRequestSchema, str]] = field(
+        default_factory=list
+    )
     compensation_calls: list[tuple[str, str]] = field(default_factory=list)
     events: list[str] | None = None
 
@@ -205,9 +205,7 @@ def test_validation_error_propagates_without_calling_later_ports() -> None:
 
 
 def test_extraction_error_propagates_without_calling_persistence() -> None:
-    error = ExtractionServiceError(
-        service_error("PDF_CORRUPTED", "extraction failed")
-    )
+    error = ExtractionServiceError(service_error("PDF_CORRUPTED", "extraction failed"))
     validation = FakeValidationPort()
     extraction = FakeExtractionPort(result=error)
     persistence = FakePersistenceUpdatesPort()

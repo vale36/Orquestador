@@ -126,8 +126,6 @@ def test_error_responses_match_shared_error_contract() -> None:
     assert response.error.code == "PDF_INVALID"
     assert response.error.message == "El archivo no es un PDF válido"
     assert response.error.details == {}
-    assert response.error.correlation_id == UUID(
-        "8f6f7c3e-12d5-4f57-9c6c-123456789abc"
-    )
+    assert response.error.correlation_id == UUID("8f6f7c3e-12d5-4f57-9c6c-123456789abc")
     assert validation_failure.valido is False
     assert validation_failure.error == response.error

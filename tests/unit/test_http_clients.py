@@ -102,15 +102,15 @@ def assert_request(call, expected_url: str, expected_payload: dict) -> None:
 def configure_urls(monkeypatch) -> None:
     monkeypatch.setenv("VALIDACION_URL", "http://validation.test")
     monkeypatch.setenv("EXTRACCION_URL", "http://extraction.test")
-    monkeypatch.setenv(
-        "PERSISTENCIA_ACTUALIZACIONES_URL", "http://persistence.test"
-    )
+    monkeypatch.setenv("PERSISTENCIA_ACTUALIZACIONES_URL", "http://persistence.test")
     monkeypatch.setenv("REQUEST_TIMEOUT_SECONDS", "2.5")
     monkeypatch.setenv("RETRY_ATTEMPTS", "0")
     monkeypatch.setenv("RETRY_DELAY_SECONDS", "0")
 
 
-def test_validation_client_sends_configured_json_and_correlation_id(monkeypatch) -> None:
+def test_validation_client_sends_configured_json_and_correlation_id(
+    monkeypatch,
+) -> None:
     configure_urls(monkeypatch)
     calls = install_response(
         monkeypatch,
@@ -153,7 +153,9 @@ def test_validation_client_translates_connection_error(monkeypatch) -> None:
     assert error.value.error.correlation_id == UUID(CORRELATION_ID)
 
 
-def test_extraction_client_sends_configured_json_and_correlation_id(monkeypatch) -> None:
+def test_extraction_client_sends_configured_json_and_correlation_id(
+    monkeypatch,
+) -> None:
     configure_urls(monkeypatch)
     calls = install_response(monkeypatch, EXTRACTION_RESPONSE)
 
@@ -193,13 +195,13 @@ def test_extraction_client_translates_connection_error(monkeypatch) -> None:
     assert error.value.error.correlation_id == UUID(CORRELATION_ID)
 
 
-def test_persistence_client_sends_create_request_and_correlation_id(monkeypatch) -> None:
+def test_persistence_client_sends_create_request_and_correlation_id(
+    monkeypatch,
+) -> None:
     configure_urls(monkeypatch)
     calls = install_response(monkeypatch, DOCUMENT_RESPONSE)
 
-    result = PersistenceUpdatesHttpClient().create(
-        PERSISTENCE_REQUEST, CORRELATION_ID
-    )
+    result = PersistenceUpdatesHttpClient().create(PERSISTENCE_REQUEST, CORRELATION_ID)
 
     assert isinstance(result, PdfDocumentResponseSchema)
     assert result.id == UUID(CORRELATION_ID)
@@ -215,9 +217,7 @@ def test_persistence_client_translates_contract_http_error(monkeypatch) -> None:
     install_http_error(monkeypatch, REMOTE_ERROR)
 
     with pytest.raises(PersistenceServiceError) as error:
-        PersistenceUpdatesHttpClient().create(
-            PERSISTENCE_REQUEST, CORRELATION_ID
-        )
+        PersistenceUpdatesHttpClient().create(PERSISTENCE_REQUEST, CORRELATION_ID)
 
     assert error.value.error.code == "PDF_INVALID"
     assert error.value.error.correlation_id == UUID(CORRELATION_ID)
@@ -232,9 +232,7 @@ def test_persistence_client_translates_connection_error(monkeypatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", fail_connection)
 
     with pytest.raises(DependencyUnavailableError) as error:
-        PersistenceUpdatesHttpClient().create(
-            PERSISTENCE_REQUEST, CORRELATION_ID
-        )
+        PersistenceUpdatesHttpClient().create(PERSISTENCE_REQUEST, CORRELATION_ID)
 
     assert error.value.error.correlation_id == UUID(CORRELATION_ID)
 
@@ -248,9 +246,7 @@ def test_persistence_client_translates_transport_timeout(monkeypatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", timeout)
 
     with pytest.raises(DependencyUnavailableError) as error:
-        PersistenceUpdatesHttpClient().create(
-            PERSISTENCE_REQUEST, CORRELATION_ID
-        )
+        PersistenceUpdatesHttpClient().create(PERSISTENCE_REQUEST, CORRELATION_ID)
 
     assert error.value.error.code == "DEPENDENCY_UNAVAILABLE"
     assert error.value.error.correlation_id == UUID(CORRELATION_ID)

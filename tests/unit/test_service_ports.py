@@ -13,9 +13,9 @@ from app.schemas.pdf_schemas import (
 from app.services.orchestrator import OrchestratorService
 from app.services.ports import (
     DependencyUnavailableError,
+    ExternalServiceError,
     ExtractionPort,
     ExtractionServiceError,
-    ExternalServiceError,
     PersistenceServiceError,
     PersistenceUpdatesPort,
     ValidationPort,
@@ -61,7 +61,9 @@ def test_ports_define_contract_payloads_responses_and_correlation_id() -> None:
     }
 
 
-def test_external_service_errors_preserve_contract_error_and_are_operation_specific() -> None:
+def test_external_service_errors_preserve_contract_error_and_are_operation_specific() -> (
+    None
+):
     error = ServiceErrorSchema(
         code="DEPENDENCY_UNAVAILABLE",
         message="Servicio no disponible",
@@ -140,13 +142,16 @@ def test_ports_are_structurally_implementable_by_test_doubles() -> None:
     assert validation.validate(pdf_request, "corr").valido
     extraction_result = extraction.extract(pdf_request, "corr")
     assert extraction_result.paginas == 1
-    assert persistence.create(
-        PersistenceCreateRequestSchema(
-            nombre=extraction_result.nombre,
-            checksum=extraction_result.checksum,
-            texto=extraction_result.texto,
-            tamano_bytes=extraction_result.tamano_bytes,
-            paginas=extraction_result.paginas,
-        ),
-        "corr",
-    ).nombre == "a.pdf"
+    assert (
+        persistence.create(
+            PersistenceCreateRequestSchema(
+                nombre=extraction_result.nombre,
+                checksum=extraction_result.checksum,
+                texto=extraction_result.texto,
+                tamano_bytes=extraction_result.tamano_bytes,
+                paginas=extraction_result.paginas,
+            ),
+            "corr",
+        ).nombre
+        == "a.pdf"
+    )

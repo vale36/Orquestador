@@ -104,8 +104,7 @@ def invoke_asgi(
         "query_string": b"",
         "root_path": "",
         "headers": [
-            (name.lower().encode(), value.encode())
-            for name, value in header_items
+            (name.lower().encode(), value.encode()) for name, value in header_items
         ],
         "client": ("testclient", 50000),
         "server": ("testserver", 80),
