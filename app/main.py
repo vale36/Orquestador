@@ -67,75 +67,57 @@ async def correlation_id_middleware(request: Request, call_next):
     return response
 
 
-def _request_correlation_id(request: Request) -> str:
-    return request.state.correlation_id
-
-
-@app.exception_handler(ExternalServiceError)
-async def external_service_error_handler(
-    request: Request,
-    error: ExternalServiceError,
+def error_response(
+    request: Request, status_code: int, code: str, message: str, details: dict
 ) -> JSONResponse:
-    correlation_id = _request_correlation_id(request)
+    """Formato común de errores. El header se agrega acá porque el handler de
+    Exception corre fuera del middleware de correlation ID."""
+    correlation_id = request.state.correlation_id
     response = ErrorResponseSchema(
         error=ServiceErrorSchema(
-            code=error.code,
-            message=error.message,
-            details=error.details,
+            code=code,
+            message=message,
+            details=details,
             correlation_id=UUID(correlation_id),
         )
     )
     return JSONResponse(
-        status_code=CONTRACT_ERROR_STATUS.get(error.code, 500),
+        status_code=status_code,
         content=response.model_dump(mode="json"),
         headers={"X-Correlation-ID": correlation_id},
+    )
+
+
+@app.exception_handler(ExternalServiceError)
+async def external_service_error_handler(
+    request: Request, error: ExternalServiceError
+) -> JSONResponse:
+    status_code = CONTRACT_ERROR_STATUS.get(error.code, 500)
+    return error_response(
+        request, status_code, error.code, error.message, error.details
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_error_handler(
-    request: Request,
-    error: RequestValidationError,
+    request: Request, error: RequestValidationError
 ) -> JSONResponse:
-    correlation_id = _request_correlation_id(request)
-    response = ErrorResponseSchema(
-        error=ServiceErrorSchema(
-            code="VALIDATION_ERROR",
-            message="La solicitud no cumple el contrato",
-            details={
-                "errors": [
-                    {
-                        "loc": list(item["loc"]),
-                        "msg": item["msg"],
-                        "type": item["type"],
-                    }
-                    for item in error.errors()
-                ]
-            },
-            correlation_id=UUID(correlation_id),
-        )
-    )
-    return JSONResponse(
-        status_code=400,
-        content=response.model_dump(mode="json"),
-        headers={"X-Correlation-ID": correlation_id},
+    # Sin el valor recibido: el input puede traer el PDF entero en Base64.
+    errors = [
+        {"loc": list(item["loc"]), "msg": item["msg"], "type": item["type"]}
+        for item in error.errors()
+    ]
+    return error_response(
+        request,
+        400,
+        "VALIDATION_ERROR",
+        "La solicitud no cumple el contrato",
+        {"errors": errors},
     )
 
 
 @app.exception_handler(Exception)
 async def unexpected_error_handler(request: Request, _: Exception) -> JSONResponse:
-    # Corre fuera del middleware de correlation ID: el header se agrega acá.
-    correlation_id = _request_correlation_id(request)
-    response = ErrorResponseSchema(
-        error=ServiceErrorSchema(
-            code="INTERNAL_ERROR",
-            message="Error interno del orquestador",
-            details={},
-            correlation_id=UUID(correlation_id),
-        )
-    )
-    return JSONResponse(
-        status_code=500,
-        content=response.model_dump(mode="json"),
-        headers={"X-Correlation-ID": correlation_id},
+    return error_response(
+        request, 500, "INTERNAL_ERROR", "Error interno del orquestador", {}
     )
