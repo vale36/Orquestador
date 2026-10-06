@@ -49,16 +49,26 @@ CONTRACT_ERROR_STATUS = {
 }
 
 
+def _correlation_id_from(header: str | None) -> str:
+    """Contrato: identificación UUID. Un valor ausente o que no es UUID se
+    reemplaza por uno nuevo en lugar de rechazar el request."""
+    try:
+        return str(UUID(header)) if header else str(uuid4())
+    except ValueError:
+        return str(uuid4())
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    correlation_id = _correlation_id_from(request.headers.get("X-Correlation-ID"))
+    request.state.correlation_id = correlation_id
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
+
 def _request_correlation_id(request: Request) -> str:
-    correlation_id = getattr(request.state, "correlation_id", None)
-    if correlation_id is None:
-        supplied_id = request.headers.get("X-Correlation-ID")
-        try:
-            correlation_id = str(UUID(supplied_id)) if supplied_id else str(uuid4())
-        except ValueError:
-            correlation_id = str(uuid4())
-        request.state.correlation_id = correlation_id
-    return correlation_id
+    return request.state.correlation_id
 
 
 @app.exception_handler(ExternalServiceError)

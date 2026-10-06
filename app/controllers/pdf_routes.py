@@ -1,7 +1,6 @@
 from dataclasses import asdict
-from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, Request, Response, status
+from fastapi import APIRouter, Depends, Request, status
 
 from app.core.composition import get_orchestrator_service
 from app.models.pdf_document import PdfRequest
@@ -30,17 +29,12 @@ router = APIRouter(tags=["PDF"])
 async def create_pdf(
     pdf_request: PdfRequestSchema,
     request: Request,
-    response: Response,
-    correlation_id: UUID | None = Header(default=None, alias="X-Correlation-ID"),
     orchestrator_service: OrchestratorService = Depends(get_orchestrator_service),
 ) -> PdfDocumentResponseSchema:
-    request_correlation_id = str(correlation_id or uuid4())
-    request.state.correlation_id = request_correlation_id
-    response.headers["X-Correlation-ID"] = request_correlation_id
     document = await orchestrator_service.orchestrate(
         PdfRequest(
             archivo_base64=pdf_request.archivo_base64, nombre=pdf_request.nombre
         ),
-        request_correlation_id,
+        request.state.correlation_id,
     )
     return PdfDocumentResponseSchema.model_validate(asdict(document))
