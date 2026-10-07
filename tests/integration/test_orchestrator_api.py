@@ -19,8 +19,8 @@ DOCUMENT_BODY = {
     "texto": "Texto extraído del documento",
     "tamano_bytes": 245760,
     "paginas": 3,
-    "created_at": "2026-09-14T18:00:00Z",
-    "updated_at": "2026-09-14T18:00:00Z",
+    "created_at": "2026-09-14T18:00:00.000Z",
+    "updated_at": "2026-09-14T18:00:00.000Z",
 }
 
 
