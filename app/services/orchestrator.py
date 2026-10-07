@@ -32,7 +32,14 @@ class OrchestratorService:
         # Al segundo: persistencia puede guardar created_at sin fracciones.
         started_at = datetime.now(UTC).replace(microsecond=0)
         await self._validation_service.validate(request, correlation_id)
+        logger.info("validacion aceptada")
         extraction = await self._extraction_service.extract(request, correlation_id)
+        # Sin nombre ni texto (contrato 1.2.0): el documento se identifica por checksum.
+        logger.info(
+            "texto extraido paginas=%s checksum=%s",
+            extraction.paginas,
+            extraction.checksum,
+        )
         try:
             document = await self._persistence_updates.create(
                 extraction, correlation_id
@@ -53,6 +60,9 @@ class OrchestratorService:
                     type(compensation_error).__name__,
                 )
             raise
+        logger.info(
+            "documento creado id=%s checksum=%s", document.id, document.checksum
+        )
         return OrchestrationResult(
             document=document, extraction_time_ms=extraction.extraction_time_ms
         )

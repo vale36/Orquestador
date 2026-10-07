@@ -22,9 +22,15 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Settings se valida al arrancar: una variable faltante impide iniciar la app.
     settings = get_settings()
+    logging.getLogger().setLevel(settings.log_level)
+    logger.info("servicio iniciado")
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as http:
         app.state.orchestrator_service = build_orchestrator(settings, http)
         yield
+        # uvicorn llega acá ante SIGTERM, después de cerrar el puerto y terminar las
+        # requests en curso (12-Factor IX). Al salir del bloque se cierra httpx.
+        logger.info("apagado iniciado")
+    logger.info("apagado completo")
 
 
 app = FastAPI(

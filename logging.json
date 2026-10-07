@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "contrato": {
+      "format": "%(asctime)s %(levelname)s %(name)s correlation_id=%(correlation_id)s %(message)s"
+    }
+  },
+  "handlers": {
+    "stdout": {
+      "class": "logging.StreamHandler",
+      "formatter": "contrato",
+      "stream": "ext://sys.stdout"
+    }
+  },
+  "loggers": {
+    "uvicorn": {
+      "handlers": [],
+      "propagate": true
+    },
+    "uvicorn.error": {
+      "handlers": [],
+      "propagate": true
+    },
+    "uvicorn.access": {
+      "handlers": [],
+      "propagate": false
+    },
+    "httpx": {
+      "level": "WARNING"
+    },
+    "httpcore": {
+      "level": "WARNING"
+    }
+  },
+  "root": {
+    "handlers": [
+      "stdout"
+    ],
+    "level": "INFO"
+  }
+}
