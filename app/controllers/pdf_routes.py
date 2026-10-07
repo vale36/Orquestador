@@ -1,6 +1,6 @@
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from app.core.composition import get_orchestrator_service
 from app.models.pdf_document import PdfRequest
@@ -29,12 +29,17 @@ router = APIRouter(tags=["PDF"])
 async def create_pdf(
     pdf_request: PdfRequestSchema,
     request: Request,
+    response: Response,
     orchestrator_service: OrchestratorService = Depends(get_orchestrator_service),
 ) -> PdfDocumentResponseSchema:
-    document = await orchestrator_service.orchestrate(
+    result = await orchestrator_service.orchestrate(
         PdfRequest(
             archivo_base64=pdf_request.archivo_base64, nombre=pdf_request.nombre
         ),
         request.state.correlation_id,
     )
-    return PdfDocumentResponseSchema.model_validate(asdict(document))
+    # Tiempo de extracción informado por extraccion-texto, para medirlo aparte del
+    # tiempo total en las pruebas de carga.
+    if result.extraction_time_ms is not None:
+        response.headers["X-Extraction-Time-Ms"] = f"{result.extraction_time_ms:.1f}"
+    return PdfDocumentResponseSchema.model_validate(asdict(result.document))

@@ -1,6 +1,5 @@
 """Traducción entre el JSON del contrato y los modelos de dominio."""
 
-from dataclasses import asdict
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -38,7 +37,15 @@ def document_from_json(data: dict, service_name: str) -> PdfDocument:
 
 
 def extraction_result_to_json(result: ExtractionResult) -> dict:
-    return asdict(result)
+    """Cuerpo de POST /pdf: solo los campos del contrato (persistencia rechaza
+    campos extra)."""
+    return {
+        "nombre": result.nombre,
+        "checksum": result.checksum,
+        "texto": result.texto,
+        "tamano_bytes": result.tamano_bytes,
+        "paginas": result.paginas,
+    }
 
 
 def _utc(value: str) -> datetime:

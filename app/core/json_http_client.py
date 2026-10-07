@@ -42,13 +42,34 @@ class JsonHttpClient:
     ) -> dict | None:
         """Devuelve el cuerpo JSON, o None ante 204 (o 404 si not_found_ok).
         retry=False para operaciones que no son idempotentes."""
+        body, _ = await self.request_with_headers(
+            method,
+            path,
+            correlation_id,
+            json=json,
+            retry=retry,
+            not_found_ok=not_found_ok,
+        )
+        return body
+
+    async def request_with_headers(
+        self,
+        method: str,
+        path: str,
+        correlation_id: str,
+        *,
+        json: dict | None = None,
+        retry: bool = True,
+        not_found_ok: bool = False,
+    ) -> tuple[dict | None, httpx.Headers]:
+        """Como request, pero también devuelve los headers de la respuesta."""
         response = await self._send(method, path, correlation_id, json, retry)
         if response.status_code == 204 or (
             not_found_ok and response.status_code == 404
         ):
-            return None
+            return None, response.headers
         if response.is_success:
-            return self._json(response)
+            return self._json(response), response.headers
         raise self._error_from(response)
 
     async def _send(

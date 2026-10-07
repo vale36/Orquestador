@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime
 
 from app.core.exceptions import DependencyUnavailableError
-from app.models.pdf_document import PdfDocument, PdfRequest
+from app.models.pdf_document import OrchestrationResult, PdfRequest
 from app.services.ports import (
     ExtractionPort,
     PersistenceQueriesPort,
@@ -28,13 +28,15 @@ class OrchestratorService:
 
     async def orchestrate(
         self, request: PdfRequest, correlation_id: str
-    ) -> PdfDocument:
+    ) -> OrchestrationResult:
         # Al segundo: persistencia puede guardar created_at sin fracciones.
         started_at = datetime.now(UTC).replace(microsecond=0)
         await self._validation_service.validate(request, correlation_id)
         extraction = await self._extraction_service.extract(request, correlation_id)
         try:
-            return await self._persistence_updates.create(extraction, correlation_id)
+            document = await self._persistence_updates.create(
+                extraction, correlation_id
+            )
         except DependencyUnavailableError:
             # Solo un alta sin respuesta deja una operación parcial posible: el
             # documento pudo guardarse aunque la respuesta no llegó. Un error del
@@ -51,6 +53,9 @@ class OrchestratorService:
                     type(compensation_error).__name__,
                 )
             raise
+        return OrchestrationResult(
+            document=document, extraction_time_ms=extraction.extraction_time_ms
+        )
 
     async def _compensate(
         self, checksum: str, correlation_id: str, started_at: datetime

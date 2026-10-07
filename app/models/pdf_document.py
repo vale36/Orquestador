@@ -28,3 +28,11 @@ class ExtractionResult:
     checksum: str
     tamano_bytes: int
     paginas: int
+    # Tiempo que informa extraccion-texto; no es parte del documento.
+    extraction_time_ms: float | None = None
+
+
+@dataclass(frozen=True)
+class OrchestrationResult:
+    document: PdfDocument
+    extraction_time_ms: float | None
