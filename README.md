@@ -26,9 +26,8 @@ uv sync --locked
 
 ## Configuración
 
-Todas las variables son obligatorias y se validan al arrancar con
-`pydantic-settings`: si falta alguna o tiene un valor inválido, la aplicación
-no inicia.
+Las variables se validan al arrancar con `pydantic-settings`: si falta una
+obligatoria o alguna tiene un valor inválido, la aplicación no inicia.
 
 | Variable | Uso |
 | --- | --- |
@@ -39,6 +38,7 @@ no inicia.
 | `REQUEST_TIMEOUT_SECONDS` | Timeout de cada llamada, mayor que cero. |
 | `RETRY_ATTEMPTS` | Reintentos además del primer intento; entero no negativo. |
 | `RETRY_DELAY_SECONDS` | Demora entre reintentos, no negativa. |
+| `LOG_LEVEL` | Opcional (contrato 1.2.0): `DEBUG`, `INFO` (por defecto), `WARNING` o `ERROR`. |
 
 `.env.example` tiene todas las claves sin valores. Para desarrollo local:
 
@@ -199,19 +199,48 @@ compensación falla, se registra y el cliente recibe el error original del alta.
 `422`): significa que no se guardó nada. Ante un `409`, borrar por checksum
 eliminaría el documento que ya existía.
 
-## Logs
+## Logs (12-Factor XI)
 
-Van a `stdout`, sin archivos, y cada línea lleva el `correlation_id`: el
-middleware lo guarda en una `ContextVar` y una *record factory* lo agrega a
-cada registro, así lo tienen también los logs de la SAGA y de los reintentos.
+Van a `stdout`, sin archivos. La configuración está en [`logging.json`](logging.json),
+en la raíz del repo (formato `dictConfig`), y el nivel sale de `LOG_LEVEL`, que se
+aplica en el `lifespan` (contrato `microservicios-pdf` 1.2.0). Cada línea lleva el
+`correlation_id`: el middleware lo guarda en una `ContextVar` y una *record factory*
+lo agrega a cada registro, así lo tienen también los logs de la SAGA y de los
+reintentos. Con el mismo id se sigue la request en los logs de los otros servicios.
 
 ```text
-2026-10-06 20:30:01,905 INFO app.main correlation_id=8f6f7c3e-... method=POST path=/pdf status=201 duracion_ms=48.2
-2026-10-06 20:30:02,114 WARNING app.core.json_http_client correlation_id=1b2c... reintentando POST /extraer en extraccion-texto intento=2 de 3 motivo=ReadTimeout
+INFO app.main correlation_id=- servicio iniciado
+INFO app.services.orchestrator correlation_id=8f6f7c3e-... validacion aceptada
+INFO app.services.orchestrator correlation_id=8f6f7c3e-... texto extraido paginas=10 checksum=9f86d0...
+INFO app.services.orchestrator correlation_id=8f6f7c3e-... documento creado id=1111... checksum=9f86d0...
+INFO app.main correlation_id=8f6f7c3e-... method=POST path=/pdf status=201 duracion_ms=48.2
+WARNING app.core.json_http_client correlation_id=1b2c... reintentando POST /extraer en extraccion-texto intento=2 de 3 motivo=ReadTimeout
 ```
 
-El access log de uvicorn está desactivado en la imagen porque no lleva el
-`correlation_id`.
+| Nivel | Qué registra este servicio |
+| --- | --- |
+| `INFO` | Cada request, cada paso del flujo (validación aceptada, texto extraído, documento creado), compensación completada, inicio y apagado. |
+| `WARNING` | Reintentos hacia otro servicio, compensación SAGA iniciada, errores del contrato devueltos al cliente. |
+| `ERROR` | Compensación fallida y errores no previstos, con traceback. |
+
+**No se registran** el Base64, el texto extraído ni el nombre del archivo (puede
+tener datos personales): el documento se identifica por `id` y `checksum`. Hay un
+test que lo verifica. `httpx` queda en `WARNING` para no repetir en cada llamada
+lo que ya registra el orquestador, y el access log de uvicorn está desactivado en
+la imagen porque lo registra la app.
+
+## Finalización segura (12-Factor IX)
+
+La imagen corre uvicorn como PID 1 (`exec` en el `CMD`) con
+`--timeout-graceful-shutdown 30`. Ante `SIGTERM` (`docker stop`) deja de aceptar
+conexiones, termina las requests en curso y cierra el cliente httpx en el
+`lifespan` (`apagado iniciado` / `apagado completo`); sale con código 0. Probado
+con la imagen `1.0.3`.
+
+El peor caso de una request (tres intentos de 10 s hacia una dependencia lenta)
+puede pasar los 30 s. Si el plazo se agota o llega un `SIGKILL`, el orquestador no
+alcanza a compensar: lo que pudo quedar es un documento completo guardado (cada alta
+es una sola escritura), y reenviar el mismo PDF responde `409`.
 
 ## Tests y calidad
 
@@ -233,6 +262,9 @@ La suite es hermética: no necesita los otros microservicios ni `.env`
   respuesta del contrato, cada código de error, correlation ID, logs, y un
   flujo completo con los adaptadores reales y un transporte HTTP de prueba
   (incluido un reintento).
+- **Logs y lifespan:** `LOG_LEVEL` opcional e inválido, formato de
+  `logging.json`, eventos de cada paso sin datos sensibles, inicio y apagado en
+  el `lifespan` y nivel aplicado al arrancar.
 
 Queda fuera a propósito: la integración contra los servicios reales, que se
 prueba en el repositorio de integración con Docker Compose.
