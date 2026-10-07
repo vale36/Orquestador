@@ -58,3 +58,14 @@ def test_settings_rejects_invalid_values(entorno, nombre, valor) -> None:
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_log_level_es_opcional_e_info_por_defecto(entorno) -> None:
+    assert Settings().log_level == "INFO"
+
+
+def test_log_level_invalido_impide_arrancar(entorno) -> None:
+    entorno.setenv("LOG_LEVEL", "VERBOSE")
+
+    with pytest.raises(ValidationError):
+        Settings()
