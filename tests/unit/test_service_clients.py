@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -186,3 +187,56 @@ async def test_documents_with_dates_outside_utc_are_rejected() -> None:
         await PersistenceQueriesHttpClient(recorder.http()).find_by_checksum(
             "abc123", CORRELATION_ID
         )
+
+
+async def test_extraction_reads_the_extraction_time_header() -> None:
+    body = {
+        "nombre": "contrato.pdf",
+        "texto": "Texto",
+        "checksum": "abc123",
+        "tamano_bytes": 128,
+        "paginas": 2,
+    }
+    recorder = Recorder(
+        httpx.Response(200, json=body, headers={"X-Extraction-Time-Ms": "12.5"})
+    )
+
+    result = await ExtractionHttpClient(recorder.http()).extract(
+        REQUEST, CORRELATION_ID
+    )
+
+    assert result.extraction_time_ms == 12.5
+
+
+async def test_extraction_time_is_none_when_the_header_is_missing() -> None:
+    body = {
+        "nombre": "contrato.pdf",
+        "texto": "Texto",
+        "checksum": "abc123",
+        "tamano_bytes": 128,
+        "paginas": 2,
+    }
+    recorder = Recorder(httpx.Response(200, json=body))
+
+    result = await ExtractionHttpClient(recorder.http()).extract(
+        REQUEST, CORRELATION_ID
+    )
+
+    assert result.extraction_time_ms is None
+
+
+async def test_persistence_create_does_not_send_the_extraction_time() -> None:
+    # persistencia-actualizaciones rechaza campos extra con 400 (su contrato, A5).
+    recorder = Recorder(httpx.Response(201, json=DOCUMENT_BODY))
+
+    await PersistenceUpdatesHttpClient(recorder.http()).create(
+        replace(EXTRACTION, extraction_time_ms=12.5), CORRELATION_ID
+    )
+
+    assert set(recorder.body()) == {
+        "nombre",
+        "checksum",
+        "texto",
+        "tamano_bytes",
+        "paginas",
+    }

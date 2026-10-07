@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from app.core.document_mapping import extraction_result_from_json
 from app.core.json_http_client import JsonHttpClient
@@ -13,7 +13,19 @@ class ExtractionHttpClient(ExtractionPort):
     async def extract(
         self, request: PdfRequest, correlation_id: str
     ) -> ExtractionResult:
-        body = await self._http.request(
+        body, headers = await self._http.request_with_headers(
             "POST", "/extraer", correlation_id, json=asdict(request)
         )
-        return extraction_result_from_json(body, "extraccion-texto")
+        result = extraction_result_from_json(body, "extraccion-texto")
+        return replace(
+            result,
+            extraction_time_ms=_milliseconds(headers.get("X-Extraction-Time-Ms")),
+        )
+
+
+def _milliseconds(value: str | None) -> float | None:
+    """El tiempo es informativo: si falta o no es un número, se ignora."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

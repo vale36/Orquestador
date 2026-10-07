@@ -104,6 +104,12 @@ significado:
 Los errores de validación del request no incluyen el valor recibido, para no
 devolver ni registrar el PDF en Base64.
 
+La respuesta exitosa reenvía el header `X-Extraction-Time-Ms` que informa
+`extraccion-texto` (decodificar, leer con pypdf y calcular el checksum). Así las
+pruebas de carga, que entran por el orquestador, miden la extracción por separado del
+tiempo total de la request. Si extracción no lo informa, el header no se envía. No
+forma parte del contrato.
+
 ### `GET /health`
 
 Responde `200 OK` con `{"status": "ok"}`. No llama a los otros microservicios.
