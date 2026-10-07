@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import replace
 from uuid import UUID
 
 import httpx
@@ -9,7 +10,7 @@ from app.core.composition import build_orchestrator, get_orchestrator_service
 from app.core.config import Settings
 from app.core.exceptions import DependencyUnavailableError, ExternalServiceError
 from app.main import app
-from tests.doubles import CORRELATION_ID, DOCUMENT_ID
+from tests.doubles import CORRELATION_ID, DOCUMENT_ID, EXTRACTION
 
 REQUEST_BODY = {"archivo_base64": "JVBERi0xLjQK...", "nombre": "contrato.pdf"}
 DOCUMENT_BODY = {
@@ -238,3 +239,19 @@ async def test_saga_logs_carry_the_correlation_id(client, ports, caplog) -> None
 
     messages = [r.getMessage() for r in records_with(caplog, CORRELATION_ID)]
     assert any("SAGA compensation completed" in m for m in messages)
+
+
+async def test_post_pdf_forwards_the_extraction_time(client, ports) -> None:
+    # Las pruebas de carga entran por el orquestador: con este header se mide la
+    # extracción por separado del tiempo total (CLAUDE.md, pruebas de carga).
+    ports.extraction.result = replace(EXTRACTION, extraction_time_ms=12.5)
+
+    response = await client.post("/pdf", json=REQUEST_BODY)
+
+    assert response.headers["X-Extraction-Time-Ms"] == "12.5"
+
+
+async def test_post_pdf_omits_the_extraction_time_when_unknown(client) -> None:
+    response = await client.post("/pdf", json=REQUEST_BODY)
+
+    assert "X-Extraction-Time-Ms" not in response.headers

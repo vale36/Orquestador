@@ -14,9 +14,10 @@ def saved_by_this_request():
 
 
 async def test_successful_flow_returns_the_created_document(ports) -> None:
-    document = await ports.service().orchestrate(REQUEST, CORRELATION_ID)
+    result = await ports.service().orchestrate(REQUEST, CORRELATION_ID)
 
-    assert document == DOCUMENT
+    assert result.document == DOCUMENT
+    assert result.extraction_time_ms is None
     assert ports.validation.calls == [(REQUEST, CORRELATION_ID)]
     assert ports.extraction.calls == [(REQUEST, CORRELATION_ID)]
     assert ports.updates.create_calls == [(EXTRACTION, CORRELATION_ID)]
@@ -102,3 +103,12 @@ async def test_a_document_saved_before_this_request_is_not_deleted(ports) -> Non
         await ports.service().orchestrate(REQUEST, CORRELATION_ID)
 
     assert ports.updates.delete_calls == []
+
+
+async def test_the_extraction_time_is_returned_with_the_document(ports) -> None:
+    ports.extraction.result = replace(EXTRACTION, extraction_time_ms=12.5)
+
+    result = await ports.service().orchestrate(REQUEST, CORRELATION_ID)
+
+    assert result.document == DOCUMENT
+    assert result.extraction_time_ms == 12.5

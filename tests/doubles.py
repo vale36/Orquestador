@@ -49,6 +49,7 @@ class FakeValidation(ValidationPort):
 @dataclass
 class FakeExtraction(ExtractionPort):
     error: Exception | None = None
+    result: ExtractionResult = EXTRACTION
     calls: list[tuple[PdfRequest, str]] = field(default_factory=list)
 
     async def extract(
@@ -57,7 +58,7 @@ class FakeExtraction(ExtractionPort):
         self.calls.append((request, correlation_id))
         if self.error:
             raise self.error
-        return EXTRACTION
+        return self.result
 
 
 @dataclass
