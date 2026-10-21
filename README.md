@@ -172,6 +172,12 @@ Cada llamada usa `REQUEST_TIMEOUT_SECONDS`. Las operaciones idempotentes
 (`asyncio.sleep`, sin bloquear), ante timeouts, errores de conexión y
 respuestas `408`, `429`, `500`, `502`, `503` o `504`.
 
+Excepción (contrato 1.4.0): un `503` con `details.reason` `cola_llena` o
+`espera_agotada` es el backpressure de extracción (servicio saturado) y **no se
+reintenta**: un reintento le suma carga a un servicio que ya rechaza por falta de
+lugar. Se devuelve enseguida al cliente como `503 DEPENDENCY_UNAVAILABLE` con el
+mismo `details`. No hay SAGA: pasa antes del alta.
+
 El alta en persistencia (`POST /pdf`) **no se reintenta**: si el primer intento
 se guardó pero la respuesta se perdió, un reintento recibiría `409`. Ese caso
 lo resuelve la compensación SAGA.
@@ -256,7 +262,7 @@ La suite es hermética: no necesita los otros microservicios ni `.env`
 - **Servicio:** flujo, orden de las llamadas, corte ante errores y cada caso de
   la SAGA, con dobles de los puertos (`tests/doubles.py`).
 - **Adaptadores:** rutas, cuerpos, `X-Correlation-ID`, reintentos, no
-  reintento del alta, `404` esperados y respuestas fuera del contrato, con
+  reintento del alta ni del `503` por backpressure, `404` esperados y respuestas fuera del contrato, con
   `httpx.MockTransport` inyectado.
 - **API:** la app real con los dobles inyectados por `app.dependency_overrides`:
   respuesta del contrato, cada código de error, correlation ID, logs, y un
@@ -271,9 +277,9 @@ prueba en el repositorio de integración con Docker Compose.
 
 ## Docker
 
-Ver [docs/DOCKER.md](docs/DOCKER.md). En la integración la imagen es `orquestador:1.0.4`.
+Ver [docs/DOCKER.md](docs/DOCKER.md). En la integración la imagen es `orquestador:1.0.5`.
 
-La versión del servicio es la de `pyproject.toml` (1.0.4): es la que muestra Swagger en
+La versión del servicio es la de `pyproject.toml` (1.0.5): es la que muestra Swagger en
 `/docs` y el tag de la imagen. `tests/integration/test_openapi.py` verifica que
 `FastAPI(version=...)` en `app/main.py` coincida con `pyproject.toml`; en una versión
 nueva se cambian los dos.
