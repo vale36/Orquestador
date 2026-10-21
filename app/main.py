@@ -103,8 +103,10 @@ def error_response(
     porque el handler de Exception corre fuera del middleware de correlation ID."""
     correlation_id = request.state.correlation_id
     token = correlation_id_actual.set(correlation_id)
+    # ERROR solo para fallas no previstas; un error del contrato devuelto al cliente es
+    # recuperable (WARNING, contrato 1.2.0), aunque sea un 503.
     logger.log(
-        logging.ERROR if status_code >= 500 else logging.WARNING,
+        logging.ERROR if exc_info is not None else logging.WARNING,
         "code=%s status=%s message=%s",
         code,
         status_code,
