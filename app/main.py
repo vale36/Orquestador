@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Orquestador",
-    version="1.0.5",
+    version="1.0.6",
     lifespan=lifespan,
 )
 app.include_router(pdf_router)

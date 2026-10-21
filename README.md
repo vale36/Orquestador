@@ -277,9 +277,9 @@ prueba en el repositorio de integración con Docker Compose.
 
 ## Docker
 
-Ver [docs/DOCKER.md](docs/DOCKER.md). En la integración la imagen es `orquestador:1.0.5`.
+Ver [docs/DOCKER.md](docs/DOCKER.md). En la integración la imagen es `orquestador:1.0.6`.
 
-La versión del servicio es la de `pyproject.toml` (1.0.5): es la que muestra Swagger en
+La versión del servicio es la de `pyproject.toml` (1.0.6): es la que muestra Swagger en
 `/docs` y el tag de la imagen. `tests/integration/test_openapi.py` verifica que
 `FastAPI(version=...)` en `app/main.py` coincida con `pyproject.toml`; en una versión
 nueva se cambian los dos.
