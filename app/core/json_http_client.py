@@ -10,6 +10,18 @@ from app.core.exceptions import DependencyUnavailableError, ExternalServiceError
 logger = logging.getLogger(__name__)
 
 RETRYABLE_HTTP_STATUSES = {408, 429, 500, 502, 503, 504}
+# Motivos del 503 por backpressure de extracción (contrato 1.4.0).
+BACKPRESSURE_REASONS = {"cola_llena", "espera_agotada"}
+
+
+def _is_backpressure(response: httpx.Response) -> bool:
+    """La dependencia rechazó por saturación: reintentar le suma carga."""
+    if response.status_code != 503:
+        return False
+    try:
+        return response.json()["error"]["details"]["reason"] in BACKPRESSURE_REASONS
+    except (ValueError, KeyError, TypeError):
+        return False
 
 
 class JsonHttpClient:
@@ -97,7 +109,11 @@ class JsonHttpClient:
                     ) from error
                 reason = type(error).__name__
             else:
-                if last or response.status_code not in RETRYABLE_HTTP_STATUSES:
+                if (
+                    last
+                    or response.status_code not in RETRYABLE_HTTP_STATUSES
+                    or _is_backpressure(response)
+                ):
                     return response
                 reason = f"HTTP {response.status_code}"
             logger.warning(
