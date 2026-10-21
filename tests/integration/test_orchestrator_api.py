@@ -229,6 +229,34 @@ async def test_each_error_is_logged_with_its_code(client, ports, caplog) -> None
     assert any("code=DUPLICATE_CHECKSUM status=409" in m for m in messages)
 
 
+def error_records(caplog, code: str) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if f"code={code}" in r.getMessage()]
+
+
+async def test_a_dependency_error_is_logged_as_a_warning(client, ports, caplog) -> None:
+    # Contrato 1.2.0: un error del contrato devuelto al cliente es recuperable
+    # (WARNING), aunque sea un 503 como el de extracción saturada.
+    caplog.set_level(logging.INFO)
+    ports.extraction.error = ExternalServiceError(
+        "DEPENDENCY_UNAVAILABLE", "saturado", {"reason": "cola_llena"}
+    )
+
+    await client.post("/pdf", json=REQUEST_BODY)
+
+    niveles = [r.levelno for r in error_records(caplog, "DEPENDENCY_UNAVAILABLE")]
+    assert niveles == [logging.WARNING]
+
+
+async def test_an_unexpected_error_is_logged_as_an_error(client, ports, caplog) -> None:
+    caplog.set_level(logging.INFO)
+    ports.validation.error = RuntimeError("falla no prevista")
+
+    await client.post("/pdf", json=REQUEST_BODY)
+
+    niveles = [r.levelno for r in error_records(caplog, "INTERNAL_ERROR")]
+    assert niveles == [logging.ERROR]
+
+
 async def test_saga_logs_carry_the_correlation_id(client, ports, caplog) -> None:
     caplog.set_level(logging.INFO)
     ports.updates.error = DependencyUnavailableError("timeout")
