@@ -112,6 +112,28 @@ async def test_retry_exhaustion_is_finite_and_keeps_the_last_error() -> None:
     assert error.value.code == "DATABASE_ERROR"
 
 
+@pytest.mark.parametrize("reason", ["cola_llena", "espera_agotada"])
+async def test_backpressure_of_a_dependency_is_not_retried(reason) -> None:
+    # Extracción saturada (contrato 1.4.0): reintentar le suma carga a un servicio que
+    # ya rechaza por falta de lugar.
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        body = error_body("DEPENDENCY_UNAVAILABLE")
+        body["error"]["details"] = {"reason": reason}
+        return httpx.Response(503, json=body, headers={"Retry-After": "1"})
+
+    with pytest.raises(ExternalServiceError) as error:
+        await build_client(handler, retry_attempts=2).request(
+            "POST", "/extraer", CORRELATION_ID, json={}
+        )
+
+    assert len(calls) == 1
+    assert error.value.code == "DEPENDENCY_UNAVAILABLE"
+    assert error.value.details == {"reason": reason}
+
+
 async def test_non_idempotent_requests_are_sent_once() -> None:
     calls = []
 
