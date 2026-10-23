@@ -2,12 +2,123 @@
 
 Microservicio **Orquestador** del proyecto "De Monolito a Microservicios (PDF
 Extractext)", implementado en Python con FastAPI y alineado con el contrato
-compartido `microservicios-pdf` v1.0.0.
+compartido `microservicios-pdf` v1.4.0 (en el repo
+[integracion](https://github.com/Enzo-Ezequiel/integracion), `CONTRATO.md`).
 
 El Orquestador recibe un PDF codificado en Base64 como JSON y coordina los
 microservicios de validación, extracción y persistencia. No tiene base de datos
-propia, no utiliza `pypdf` ni Redis y no contiene la lógica de esos
+propia, no lee PDFs, no usa MongoDB ni Redis y no contiene la lógica de esos
 microservicios.
+
+## Cómo ejecutar todo el sistema
+
+El orquestador solo no hace nada útil: necesita a los otros cuatro servicios, MongoDB,
+Redis y Traefik. Todo eso se levanta junto con **un solo script** del repo `integracion`.
+Esta guía es para una máquina con Windows; en Linux o Mac los comandos son los mismos.
+
+### 1. Instalar las herramientas (una sola vez)
+
+| Herramienta | Para qué | Cómo saber si ya está |
+|---|---|---|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Corre todos los servicios en contenedores | `docker --version` |
+| [Git](https://git-scm.com/) (trae **Git Bash**) | Bajar los repos y correr el script | `git --version` |
+| [uv](https://docs.astral.sh/uv/) | Lo pide el script; también corre los tests y genera PDFs de prueba | `uv --version` |
+
+Docker Desktop tiene que estar **abierto** (el ícono de la ballena quieto) antes de seguir.
+
+### 2. Armar la carpeta del proyecto (una sola vez)
+
+Todos los repos van uno al lado del otro, dentro de una misma carpeta:
+
+```text
+Proyecto Microservicios/
+├── dockers/                        ← Traefik de la cátedra (no está en GitHub, ver abajo)
+├── integracion/
+├── Orquestador/
+├── validacion-pdf/
+├── Extraccion-de-texto-pdf-/
+├── persistencia-actualizaciones/
+└── persistencia-consultas/
+```
+
+Desde esa carpeta, en **Git Bash**:
+
+```bash
+git clone https://github.com/Enzo-Ezequiel/integracion.git
+git clone https://github.com/vale36/Orquestador.git
+git clone https://github.com/valentinapenasco/validacion-pdf.git
+git clone https://github.com/NicolasPerez735/Extraccion-de-texto-pdf-.git
+git clone https://github.com/matiasscanoo/persistencia-actualizaciones.git
+git clone https://github.com/ManuelGomez33/persistencia-consultas.git
+```
+
+La carpeta `dockers/` la da la cátedra (Traefik con el certificado HTTPS) y no se sube a
+GitHub porque tiene una clave privada: copiala de un compañero o del aula virtual. Para
+que el navegador confíe en el certificado, corré una vez `mkcert -install` (ver
+"La infraestructura de la cátedra" en el README de `integracion`).
+
+### 3. Levantar todo
+
+En **Git Bash**, desde la carpeta `integracion`:
+
+```bash
+cd integracion
+./scripts/levantar.sh
+```
+
+El script hace todo solo: revisa que estén las herramientas, crea la red `redutn` y los
+archivos de configuración, construye las cinco imágenes, levanta Traefik y el sistema, y
+prueba que cada servicio responda. La primera vez tarda unos minutos (baja imágenes);
+termina con `Listo: https://pdf.universidad.localhost`.
+
+### 4. Probarlo
+
+- **En el navegador:** <https://pdf.universidad.localhost/docs> abre Swagger, la página con
+  los endpoints del orquestador. <https://pdf.universidad.localhost/health> tiene que decir
+  `{"status":"ok"}`.
+- **Subir un PDF de verdad**, en PowerShell (cambiá la ruta por un PDF tuyo):
+
+  ```powershell
+  $pdf = "C:\ruta\a\un\archivo.pdf"
+  $body = @{
+    archivo_base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($pdf))
+    nombre = Split-Path $pdf -Leaf
+  } | ConvertTo-Json
+  Invoke-RestMethod -Method Post -Uri https://pdf.universidad.localhost/pdf `
+    -ContentType "application/json" -Body $body
+  ```
+
+  La respuesta es el documento guardado: `id`, `checksum`, `texto`, `paginas` y fechas. Si
+  subís el **mismo** PDF otra vez, la respuesta es `409 DUPLICATE_CHECKSUM`: es lo esperado,
+  ya estaba guardado.
+
+- **Ver por dónde pasó un pedido:** cada respuesta trae el header `X-Correlation-ID`.
+  Desde `integracion`, `docker compose logs | grep <ese-id>` muestra la línea de cada
+  servicio que lo atendió.
+
+### 5. Apagar
+
+Desde `integracion`:
+
+```bash
+docker compose down        # apaga todo y conserva los documentos guardados
+docker compose down -v     # apaga todo y además borra la base de datos
+```
+
+### Si algo falla
+
+| Síntoma | Qué hacer |
+|---|---|
+| `Docker no está corriendo` | Abrir Docker Desktop y esperar a que termine de arrancar |
+| `falta el repo ../<nombre>` | Clonar ese repo al lado de `integracion` (paso 2) |
+| `Traefik no corre y no está ../dockers/traefik` | Copiar la carpeta `dockers/` de la cátedra (paso 2) |
+| El navegador avisa que el sitio no es seguro | Correr `mkcert -install` y reiniciar el navegador |
+| Un puerto 80 o 443 ocupado | Cerrar el programa que lo usa (otro servidor web o IIS) |
+| `falta uv` o `falta docker` | Instalar esa herramienta (paso 1) y abrir una terminal nueva |
+| Un servicio queda `unhealthy` | `docker compose logs <servicio>` muestra el error |
+
+Para correr **solo el orquestador** sin Docker (por ejemplo, para desarrollar o correr sus
+tests), seguir las secciones de abajo.
 
 ## Requisitos
 
@@ -105,7 +216,7 @@ Los errores de validación del request no incluyen el valor recibido, para no
 devolver ni registrar el PDF en Base64.
 
 La respuesta exitosa reenvía el header `X-Extraction-Time-Ms` que informa
-`extraccion-texto` (decodificar, leer con pypdf y calcular el checksum). Así las
+`extraccion-texto` (decodificar, leer con PyMuPDF y calcular el checksum). Así las
 pruebas de carga, que entran por el orquestador, miden la extracción por separado del
 tiempo total de la request. Si extracción no lo informa, el header no se envía. No
 forma parte del contrato.
@@ -294,3 +405,8 @@ nueva se cambian los dos.
   `created_at` con el inicio de la request, al segundo. Si persistencia y el
   orquestador corren con relojes muy desincronizados, la comparación puede
   fallar; en Docker Compose comparten el reloj del host.
+- **El orquestador es el techo del sistema.** Con extracción en PyMuPDF, la prueba de
+  carga del 2026-10-21 llegó a ~90 PDF/s con el orquestador en un solo proceso al
+  ~105 % de CPU y las réplicas de extracción al ~20 % (ver el README de `integracion`).
+  Para pasar ese techo habría que correr varias réplicas detrás de Traefik o
+  `uvicorn --workers`; queda para decidir con el grupo.
