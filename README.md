@@ -2,11 +2,12 @@
 
 Microservicio **Orquestador** del proyecto "De Monolito a Microservicios (PDF
 Extractext)", implementado en Python con FastAPI y alineado con el contrato
-compartido `microservicios-pdf` v1.0.0.
+compartido `microservicios-pdf` v1.4.0 (en el repo
+[integracion](https://github.com/Enzo-Ezequiel/integracion), `CONTRATO.md`).
 
 El Orquestador recibe un PDF codificado en Base64 como JSON y coordina los
 microservicios de validación, extracción y persistencia. No tiene base de datos
-propia, no utiliza `pypdf` ni Redis y no contiene la lógica de esos
+propia, no lee PDFs, no usa MongoDB ni Redis y no contiene la lógica de esos
 microservicios.
 
 ## Requisitos
@@ -105,7 +106,7 @@ Los errores de validación del request no incluyen el valor recibido, para no
 devolver ni registrar el PDF en Base64.
 
 La respuesta exitosa reenvía el header `X-Extraction-Time-Ms` que informa
-`extraccion-texto` (decodificar, leer con pypdf y calcular el checksum). Así las
+`extraccion-texto` (decodificar, leer con PyMuPDF y calcular el checksum). Así las
 pruebas de carga, que entran por el orquestador, miden la extracción por separado del
 tiempo total de la request. Si extracción no lo informa, el header no se envía. No
 forma parte del contrato.
@@ -294,3 +295,8 @@ nueva se cambian los dos.
   `created_at` con el inicio de la request, al segundo. Si persistencia y el
   orquestador corren con relojes muy desincronizados, la comparación puede
   fallar; en Docker Compose comparten el reloj del host.
+- **El orquestador es el techo del sistema.** Con extracción en PyMuPDF, la prueba de
+  carga del 2026-10-21 llegó a ~90 PDF/s con el orquestador en un solo proceso al
+  ~105 % de CPU y las réplicas de extracción al ~20 % (ver el README de `integracion`).
+  Para pasar ese techo habría que correr varias réplicas detrás de Traefik o
+  `uvicorn --workers`; queda para decidir con el grupo.
