@@ -96,6 +96,46 @@ async def test_retries_transient_failures_until_success() -> None:
     assert body == {"ok": True}
 
 
+async def test_safe_retry_resolves_and_uses_another_healthy_instance() -> None:
+    requests: list[httpx.Request] = []
+
+    class Discovery:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def resolve(self, _: str) -> list[httpx.URL]:
+            self.calls += 1
+            if self.calls == 1:
+                return [httpx.URL("http://extraccion-a:8000")]
+            return [httpx.URL("http://extraccion-b:8000")]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx.ConnectError("instancia caída")
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(handler)
+    discovery = Discovery()
+    client = JsonHttpClient(
+        httpx.AsyncClient(transport=transport),
+        base_url=None,
+        service_name="extraccion",
+        retry_attempts=1,
+        retry_delay_seconds=0,
+        endpoint_resolver=discovery,
+    )
+
+    body = await client.request("GET", "/extraer", CORRELATION_ID)
+
+    assert body == {"ok": True}
+    assert [str(request.url) for request in requests] == [
+        "http://extraccion-a:8000/extraer",
+        "http://extraccion-b:8000/extraer",
+    ]
+    assert discovery.calls == 2
+
+
 async def test_retry_exhaustion_is_finite_and_keeps_the_last_error() -> None:
     calls = []
 

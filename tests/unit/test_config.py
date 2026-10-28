@@ -64,6 +64,40 @@ def test_log_level_es_opcional_e_info_por_defecto(entorno) -> None:
     assert Settings().log_level == "INFO"
 
 
+def test_consul_enables_discovery_without_fixed_urls(entorno, tmp_path) -> None:
+    entorno.setenv("CONSUL_ENABLED", "true")
+    entorno.setenv("CONSUL_HTTP_TOKEN_FILE", str(tmp_path / "consul.token"))
+    for nombre in (
+        "VALIDACION_URL",
+        "EXTRACCION_URL",
+        "PERSISTENCIA_CONSULTAS_URL",
+        "PERSISTENCIA_ACTUALIZACIONES_URL",
+    ):
+        entorno.delenv(nombre)
+
+    settings = Settings()
+
+    assert settings.consul_enabled is True
+    assert settings.consul_fallback_enabled is False
+
+
+def test_consul_rejects_missing_token_file_setting(entorno) -> None:
+    entorno.setenv("CONSUL_ENABLED", "true")
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_consul_fallback_requires_fixed_urls(entorno, tmp_path) -> None:
+    entorno.setenv("CONSUL_ENABLED", "true")
+    entorno.setenv("CONSUL_HTTP_TOKEN_FILE", str(tmp_path / "consul.token"))
+    entorno.setenv("CONSUL_FALLBACK_ENABLED", "true")
+    entorno.delenv("VALIDACION_URL")
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 def test_log_level_invalido_impide_arrancar(entorno) -> None:
     entorno.setenv("LOG_LEVEL", "VERBOSE")
 

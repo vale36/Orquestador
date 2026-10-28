@@ -1,0 +1,28 @@
+services:
+  orquestador:
+    build:
+      context: .
+    environment:
+      CONSUL_ENABLED: "true"
+      CONSUL_HTTP_ADDR: http://consul:8500
+      CONSUL_HTTP_TOKEN_FILE: /run/secrets/consul_orchestrator_token
+      CONSUL_FALLBACK_ENABLED: "false"
+      REQUEST_TIMEOUT_SECONDS: "30"
+      RETRY_ATTEMPTS: "2"
+      RETRY_DELAY_SECONDS: "0.25"
+    ports:
+      - "127.0.0.1:18000:8000"
+    secrets:
+      - source: consul_orchestrator_token
+        target: /run/secrets/consul_orchestrator_token
+        mode: 0444
+    networks:
+      - redutn
+
+secrets:
+  consul_orchestrator_token:
+    file: ../dockers/consul/generated/orchestrator.token
+
+networks:
+  redutn:
+    external: true

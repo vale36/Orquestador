@@ -6,6 +6,10 @@ import httpx
 from fastapi import Request
 
 from app.core.config import Settings
+from app.core.consul_service_discovery import (
+    ConsulServiceDiscovery,
+    OptionalFallbackEndpointResolver,
+)
 from app.core.extraction_client import ExtractionHttpClient
 from app.core.json_http_client import JsonHttpClient
 from app.core.persistence_queries_client import PersistenceQueriesHttpClient
@@ -22,13 +26,27 @@ def get_settings() -> Settings:
 def build_orchestrator(
     settings: Settings, http: httpx.AsyncClient
 ) -> OrchestratorService:
-    def client(base_url: str, service_name: str) -> JsonHttpClient:
+    discovery = None
+    if settings.consul_enabled:
+        token_file = settings.consul_http_token_file
+        token = token_file.read_text(encoding="utf-8").strip() if token_file else None
+        discovery = ConsulServiceDiscovery(http, settings.consul_http_addr, token)
+
+    def client(base_url: str | None, service_name: str) -> JsonHttpClient:
+        endpoint_resolver = None
+        if discovery is not None:
+            endpoint_resolver = discovery
+            if settings.consul_fallback_enabled and base_url:
+                endpoint_resolver = OptionalFallbackEndpointResolver(
+                    discovery, base_url
+                )
         return JsonHttpClient(
             http,
-            base_url=base_url,
+            base_url=None if discovery is not None else base_url,
             service_name=service_name,
             retry_attempts=settings.retry_attempts,
             retry_delay_seconds=settings.retry_delay_seconds,
+            endpoint_resolver=endpoint_resolver,
         )
 
     return OrchestratorService(
@@ -36,7 +54,7 @@ def build_orchestrator(
             client(settings.validacion_url, "validacion-pdf")
         ),
         extraction_service=ExtractionHttpClient(
-            client(settings.extraccion_url, "extraccion-texto")
+            client(settings.extraccion_url, "extraccion")
         ),
         persistence_updates=PersistenceUpdatesHttpClient(
             client(

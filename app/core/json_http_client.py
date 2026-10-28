@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Protocol
 
 import httpx
 
@@ -12,6 +13,10 @@ logger = logging.getLogger(__name__)
 RETRYABLE_HTTP_STATUSES = {408, 429, 500, 502, 503, 504}
 # Motivos del 503 por backpressure de extracción (contrato 1.4.0).
 BACKPRESSURE_REASONS = {"cola_llena", "espera_agotada"}
+
+
+class EndpointResolver(Protocol):
+    async def resolve(self, service_name: str) -> list[httpx.URL]: ...
 
 
 def _is_backpressure(response: httpx.Response) -> bool:
@@ -31,13 +36,17 @@ class JsonHttpClient:
     def __init__(
         self,
         client: httpx.AsyncClient,
-        base_url: str,
+        base_url: str | None,
         service_name: str,
         retry_attempts: int,
         retry_delay_seconds: float,
+        endpoint_resolver: EndpointResolver | None = None,
     ) -> None:
+        if base_url is None and endpoint_resolver is None:
+            raise ValueError("se requiere base_url o un endpoint_resolver")
         self._client = client
-        self._base_url = base_url.rstrip("/")
+        self._base_url = base_url.rstrip("/") if base_url else None
+        self._endpoint_resolver = endpoint_resolver
         self._service_name = service_name
         self._retry_attempts = retry_attempts
         self._retry_delay_seconds = retry_delay_seconds
@@ -96,12 +105,17 @@ class JsonHttpClient:
         for attempt in range(1, attempts + 1):
             last = attempt == attempts
             try:
+                endpoint = await self._endpoint()
                 response = await self._client.request(
                     method,
-                    f"{self._base_url}{path}",
+                    f"{endpoint}{path}",
                     json=json,
                     headers={"X-Correlation-ID": correlation_id},
                 )
+            except DependencyUnavailableError:
+                if last:
+                    raise
+                reason = "descubrimiento"
             except httpx.TransportError as error:
                 if last:
                     raise DependencyUnavailableError(
@@ -127,6 +141,16 @@ class JsonHttpClient:
             )
             await asyncio.sleep(self._retry_delay_seconds)
         raise AssertionError("el bucle de reintentos siempre retorna o lanza")
+
+    async def _endpoint(self) -> str:
+        if self._endpoint_resolver is None:
+            return self._base_url or ""
+        endpoints = await self._endpoint_resolver.resolve(self._service_name)
+        if not endpoints:
+            raise DependencyUnavailableError(
+                f"El servicio {self._service_name} no tiene instancias saludables"
+            )
+        return str(endpoints[0]).rstrip("/")
 
     def _json(self, response: httpx.Response) -> dict:
         try:

@@ -142,10 +142,14 @@ obligatoria o alguna tiene un valor inválido, la aplicación no inicia.
 
 | Variable | Uso |
 | --- | --- |
-| `VALIDACION_URL` | URL base de `validacion-pdf` (`POST /validar`). |
-| `EXTRACCION_URL` | URL base de `extraccion-texto` (`POST /extraer`). |
-| `PERSISTENCIA_ACTUALIZACIONES_URL` | URL base de `persistencia-actualizaciones` (`POST /pdf`, `DELETE /pdf/{id}`). |
-| `PERSISTENCIA_CONSULTAS_URL` | URL base de `persistencia-consultas` (`GET /pdf/checksum/{checksum}`, para la compensación SAGA). |
+| `VALIDACION_URL` | URL fija usada fuera de Consul o como fallback explícito. |
+| `EXTRACCION_URL` | URL fija usada fuera de Consul o como fallback explícito. |
+| `PERSISTENCIA_ACTUALIZACIONES_URL` | URL fija usada fuera de Consul o como fallback explícito. |
+| `PERSISTENCIA_CONSULTAS_URL` | URL fija usada fuera de Consul o como fallback explícito. |
+| `CONSUL_ENABLED` | Habilita Service Discovery. Por defecto es `false`. |
+| `CONSUL_HTTP_ADDR` | Dirección HTTP de Consul dentro de Docker, normalmente `http://consul:8500`. |
+| `CONSUL_HTTP_TOKEN_FILE` | Archivo con el token ACL del Orquestador. Es obligatorio con Consul habilitado. |
+| `CONSUL_FALLBACK_ENABLED` | Permite URLs fijas si falla el descubrimiento. Por defecto es `false`. |
 | `REQUEST_TIMEOUT_SECONDS` | Timeout de cada llamada, mayor que cero. |
 | `RETRY_ATTEMPTS` | Reintentos además del primer intento; entero no negativo. |
 | `RETRY_DELAY_SECONDS` | Demora entre reintentos, no negativa. |
@@ -159,6 +163,34 @@ Copy-Item .env.example .env
 ```
 
 El archivo `.env` real queda local: está en `.gitignore` y en `.dockerignore`.
+
+### Service Discovery con Consul
+
+Con `CONSUL_ENABLED=true`, el Orquestador consulta en cada intento HTTP
+`/v1/health/service/<servicio>?passing=true` y usa solo instancias cuya check
+ACL esté pasando. Los servicios se identifican como `validacion-pdf`,
+`extraccion`, `persistencia-consultas` y `persistencia-actualizaciones`.
+
+El token se lee del archivo indicado por `CONSUL_HTTP_TOKEN_FILE`; no se versiona.
+Ejemplo Docker de secreto montado como archivo:
+
+```yaml
+volumes:
+  - ./secrets/consul_orchestrator_token:/run/secrets/consul_orchestrator_token:ro
+environment:
+  CONSUL_HTTP_TOKEN_FILE: /run/secrets/consul_orchestrator_token
+```
+
+No hay caché de endpoints: cada resolución consulta el catálogo actual. Si hay
+réplicas saludables, el Orquestador las selecciona de forma circular. Los reintentos
+resuelven otra vez y pueden cambiar de instancia; las operaciones no idempotentes
+mantienen un solo intento.
+
+`CONSUL_FALLBACK_ENABLED=false` es el comportamiento seguro y predeterminado. Si
+Consul falla o no hay instancias saludables, se usa `DEPENDENCY_UNAVAILABLE` y no
+se envía tráfico a una dirección desconocida. Habilitar el fallback exige definir las
+cuatro URLs fijas; debe hacerse solo con esa intención explícita y por el tiempo que
+se considere necesario.
 
 ## Ejecución local
 
