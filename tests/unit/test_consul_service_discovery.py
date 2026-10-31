@@ -126,3 +126,60 @@ async def test_unreachable_consul_uses_existing_dependency_error() -> None:
 
     with pytest.raises(DependencyUnavailableError, match="no pudo consultar"):
         await discovery.resolve("extraccion")
+
+
+class Reloj:
+    """Reloj manual para probar la caché sin esperar."""
+
+    def __init__(self) -> None:
+        self.ahora = 0.0
+
+    def __call__(self) -> float:
+        return self.ahora
+
+
+def contar_consultas(requests: list[httpx.Request]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200, json=consul_response(("extraccion-a", 8000), ("extraccion-b", 8000))
+        )
+
+    return handler
+
+
+async def test_reuses_the_healthy_instances_for_a_couple_of_seconds() -> None:
+    # Cada PDF hace cuatro llamadas: sin caché serían cuatro consultas más a Consul.
+    requests: list[httpx.Request] = []
+    reloj = Reloj()
+    discovery = ConsulServiceDiscovery(
+        httpx.AsyncClient(transport=httpx.MockTransport(contar_consultas(requests))),
+        base_url="http://consul:8500",
+        token=None,
+        reloj=reloj,
+    )
+
+    primera = await discovery.resolve("extraccion")
+    reloj.ahora = 1.5
+    segunda = await discovery.resolve("extraccion")
+
+    assert len(requests) == 1
+    # Sigue rotando entre las instancias aunque la lista venga de la caché.
+    assert primera[0] != segunda[0]
+
+
+async def test_asks_consul_again_once_the_cache_expires() -> None:
+    requests: list[httpx.Request] = []
+    reloj = Reloj()
+    discovery = ConsulServiceDiscovery(
+        httpx.AsyncClient(transport=httpx.MockTransport(contar_consultas(requests))),
+        base_url="http://consul:8500",
+        token=None,
+        reloj=reloj,
+    )
+
+    await discovery.resolve("extraccion")
+    reloj.ahora = 2.5
+    await discovery.resolve("extraccion")
+
+    assert len(requests) == 2

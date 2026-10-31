@@ -1,27 +1,47 @@
 """Descubrimiento de instancias sanas del Orquestador mediante Consul."""
 
+import time
 from collections import defaultdict
+from collections.abc import Callable
 
 import httpx
 
 from app.core.exceptions import DependencyUnavailableError
 
+# Cada PDF hace cuatro llamadas: guardar la lista de instancias sanas un par de segundos
+# evita una consulta a Consul por llamada. Si una instancia cae en ese lapso, la cubre
+# el reintento (va a la siguiente) y después Consul deja de devolverla.
+CACHE_SEGUNDOS = 2.0
+
 
 class ConsulServiceDiscovery:
-    """Resuelve endpoints desde el health API, sin caché de instancias."""
+    """Resuelve endpoints desde el health API, con una caché corta por servicio."""
 
     def __init__(
         self,
         client: httpx.AsyncClient,
         base_url: str,
         token: str | None,
+        reloj: Callable[[], float] = time.monotonic,
     ) -> None:
         self._client = client
         self._base_url = base_url.rstrip("/")
         self._token = token
+        self._reloj = reloj
         self._next_index: dict[str, int] = defaultdict(int)
+        self._cache: dict[str, tuple[float, list[tuple[str, int]]]] = {}
 
     async def resolve(self, service_name: str) -> list[httpx.URL]:
+        endpoints = await self._sanos(service_name)
+        start = self._next_index[service_name] % len(endpoints)
+        self._next_index[service_name] += 1
+        ordered = endpoints[start:] + endpoints[:start]
+        return [httpx.URL(f"http://{address}:{port}") for address, port in ordered]
+
+    async def _sanos(self, service_name: str) -> list[tuple[str, int]]:
+        guardado = self._cache.get(service_name)
+        if guardado and self._reloj() - guardado[0] < CACHE_SEGUNDOS:
+            return guardado[1]
         headers = {"X-Consul-Token": self._token} if self._token else None
         try:
             response = await self._client.get(
@@ -52,11 +72,9 @@ class ConsulServiceDiscovery:
             raise DependencyUnavailableError(
                 f"El servicio {service_name} no tiene instancias saludables"
             )
-
-        start = self._next_index[service_name] % len(endpoints)
-        self._next_index[service_name] += 1
-        ordered = endpoints[start:] + endpoints[:start]
-        return [httpx.URL(f"http://{address}:{port}") for address, port in ordered]
+        # Solo se guardan las respuestas buenas: un error se vuelve a consultar.
+        self._cache[service_name] = (self._reloj(), endpoints)
+        return endpoints
 
     @staticmethod
     def _healthy_endpoints(registrations: object) -> list[tuple[str, int]]:
