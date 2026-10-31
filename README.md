@@ -28,12 +28,13 @@ Docker Desktop tiene que estar **abierto** (el ícono de la ballena quieto) ante
 
 ### 2. Armar la carpeta del proyecto (una sola vez)
 
-Todos los repos van uno al lado del otro, dentro de una misma carpeta:
+Todos los repos van uno al lado del otro, dentro de una misma carpeta. La infraestructura
+se clona con el nombre `dockers`:
 
 ```text
 Proyecto Microservicios/
-├── dockers/                        ← Traefik de la cátedra (no está en GitHub, ver abajo)
-├── integracion/
+├── dockers/                        ← infraestructura: Consul, Traefik, MongoDB y Redis
+├── integracion/                    ← los cinco microservicios juntos
 ├── Orquestador/
 ├── validacion-pdf/
 ├── Extraccion-de-texto-pdf-/
@@ -44,6 +45,7 @@ Proyecto Microservicios/
 Desde esa carpeta, en **Git Bash**:
 
 ```bash
+git clone https://github.com/vale36/infraestructura.git dockers
 git clone https://github.com/Enzo-Ezequiel/integracion.git
 git clone https://github.com/vale36/Orquestador.git
 git clone https://github.com/valentinapenasco/validacion-pdf.git
@@ -52,24 +54,29 @@ git clone https://github.com/matiasscanoo/persistencia-actualizaciones.git
 git clone https://github.com/ManuelGomez33/persistencia-consultas.git
 ```
 
-La carpeta `dockers/` la da la cátedra (Traefik con el certificado HTTPS) y no se sube a
-GitHub porque tiene una clave privada: copiala de un compañero o del aula virtual. Para
-que el navegador confíe en el certificado, corré una vez `mkcert -install` (ver
-"La infraestructura de la cátedra" en el README de `integracion`).
+Faltan los certificados HTTPS de Traefik, que no se suben a GitHub porque `key.pem` es una
+clave privada. Copiá `cert.pem` y `key.pem` de un compañero a `dockers/traefik/certs/`, o
+generalos con [mkcert](https://github.com/FiloSottile/mkcert) (ver el README de
+`integracion`). Para que el navegador confíe en el certificado, corré una vez
+`mkcert -install`.
 
-### 3. Levantar todo
+### 3. Levantar todo: dos docker compose, en orden
 
-En **Git Bash**, desde la carpeta `integracion`:
+Primero la infraestructura y después los microservicios. En **Git Bash**:
 
 ```bash
-cd integracion
-./scripts/levantar.sh
+docker network create redutn          # una sola vez
+cd dockers
+docker compose up -d --wait           # 1.º Consul, Traefik, MongoDB y Redis
+cd ../integracion
+./scripts/levantar.sh                 # 2.º los cinco microservicios
 ```
 
-El script hace todo solo: revisa que estén las herramientas, crea la red `redutn` y los
-archivos de configuración, construye las cinco imágenes, levanta Traefik y el sistema, y
-prueba que cada servicio responda. La primera vez tarda unos minutos (baja imágenes);
-termina con `Listo: https://pdf.universidad.localhost`.
+El primer compose arranca Consul, crea sus permisos (ACL) y los tokens que usan los
+servicios, y después Traefik, MongoDB y Redis. El script del segundo revisa que la
+infraestructura esté sana, construye las cinco imágenes, las levanta (cada servicio se
+registra solo en Consul) y prueba que respondan. La primera vez tarda unos minutos (baja
+imágenes); termina con `Listo: https://pdf.universidad.localhost`.
 
 ### 4. Probarlo
 
@@ -95,15 +102,22 @@ termina con `Listo: https://pdf.universidad.localhost`.
 - **Ver por dónde pasó un pedido:** cada respuesta trae el header `X-Correlation-ID`.
   Desde `integracion`, `docker compose logs | grep <ese-id>` muestra la línea de cada
   servicio que lo atendió.
+- **Ver qué servicios están sanos:** la interfaz de Consul está en
+  <http://127.0.0.1:8500/ui/>. Pide un token, que se lee con
+  `docker compose exec -T consul cat /consul/data/bootstrap/ui.token` desde
+  `dockers/consul`.
 
 ### 5. Apagar
 
-Desde `integracion`:
+En orden inverso, sin perder los documentos guardados:
 
 ```bash
-docker compose down        # apaga todo y conserva los documentos guardados
-docker compose down -v     # apaga todo y además borra la base de datos
+cd integracion && docker compose down      # los microservicios (se borran solos de Consul)
+cd ../dockers && docker compose down       # la infraestructura (MongoDB conserva los datos)
 ```
+
+`docker compose down -v` en `dockers` también borra la base de datos y los permisos de
+Consul: solo usarlo para empezar de cero.
 
 ### Si algo falla
 
@@ -111,7 +125,8 @@ docker compose down -v     # apaga todo y además borra la base de datos
 |---|---|
 | `Docker no está corriendo` | Abrir Docker Desktop y esperar a que termine de arrancar |
 | `falta el repo ../<nombre>` | Clonar ese repo al lado de `integracion` (paso 2) |
-| `Traefik no corre y no está ../dockers/traefik` | Copiar la carpeta `dockers/` de la cátedra (paso 2) |
+| `no existe la red redutn` o `consul no está sano` | Levantar primero la infraestructura (paso 3, `dockers`) |
+| `falta el token microservices` | El compose de `dockers` no terminó bien: `docker compose logs consul-bootstrap` en `dockers` |
 | El navegador avisa que el sitio no es seguro | Correr `mkcert -install` y reiniciar el navegador |
 | Un puerto 80 o 443 ocupado | Cerrar el programa que lo usa (otro servidor web o IIS) |
 | `falta uv` o `falta docker` | Instalar esa herramienta (paso 1) y abrir una terminal nueva |
@@ -166,9 +181,9 @@ El archivo `.env` real queda local: está en `.gitignore` y en `.dockerignore`.
 
 ### Service Discovery con Consul
 
-Con `CONSUL_ENABLED=true`, el Orquestador consulta en cada intento HTTP
-`/v1/health/service/<servicio>?passing=true` y usa solo instancias cuya check
-ACL esté pasando. Los servicios se identifican como `validacion-pdf`,
+Con `CONSUL_ENABLED=true`, el Orquestador consulta
+`/v1/health/service/<servicio>?passing=true` y usa solo instancias cuyo health check
+esté pasando. Los servicios se identifican como `validacion-pdf`,
 `extraccion`, `persistencia-consultas` y `persistencia-actualizaciones`.
 
 El token se lee del archivo indicado por `CONSUL_HTTP_TOKEN_FILE`; no se versiona.
@@ -181,10 +196,13 @@ environment:
   CONSUL_HTTP_TOKEN_FILE: /run/secrets/consul_orchestrator_token
 ```
 
-No hay caché de endpoints: cada resolución consulta el catálogo actual. Si hay
-réplicas saludables, el Orquestador las selecciona de forma circular. Los reintentos
-resuelven otra vez y pueden cambiar de instancia; las operaciones no idempotentes
-mantienen un solo intento.
+La lista de instancias sanas de cada servicio se guarda **2 segundos**
+(`CACHE_SEGUNDOS` en `app/core/consul_service_discovery.py`): cada PDF hace cuatro
+llamadas y sin caché serían cuatro consultas más a Consul. Con 5 usuarios en k6 pasó de
+61,6 a 81,4 PDF/s. Los errores no se guardan. Entre las réplicas sanas el Orquestador
+elige de forma circular en cada llamada; si una falla, el reintento va a la siguiente
+(probado matando y colgando réplicas). Las operaciones no idempotentes mantienen un solo
+intento.
 
 `CONSUL_FALLBACK_ENABLED=false` es el comportamiento seguro y predeterminado. Si
 Consul falla o no hay instancias saludables, se usa `DEPENDENCY_UNAVAILABLE` y no
@@ -437,8 +455,7 @@ nueva se cambian los dos.
   `created_at` con el inicio de la request, al segundo. Si persistencia y el
   orquestador corren con relojes muy desincronizados, la comparación puede
   fallar; en Docker Compose comparten el reloj del host.
-- **El orquestador es el techo del sistema.** Con extracción en PyMuPDF, la prueba de
-  carga del 2026-10-21 llegó a ~90 PDF/s con el orquestador en un solo proceso al
-  ~105 % de CPU y las réplicas de extracción al ~20 % (ver el README de `integracion`).
-  Para pasar ese techo habría que correr varias réplicas detrás de Traefik o
-  `uvicorn --workers`; queda para decidir con el grupo.
+- **Un solo proceso.** El orquestador corre en un proceso y es el que pone el techo del
+  sistema (~80 PDF/s con 5 usuarios en k6, 2026-10-31). Alcanza de sobra para el
+  escenario del profesor (30 pedidos por segundo, 56 ms de promedio); si hiciera falta
+  más, se le agregan réplicas detrás de Traefik.
