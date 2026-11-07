@@ -5,7 +5,7 @@ from functools import lru_cache
 import httpx
 from fastapi import Request
 
-from app.core.config import Settings
+from app.core.config import Settings, cargar_settings
 from app.core.consul_service_discovery import (
     ConsulServiceDiscovery,
     OptionalFallbackEndpointResolver,
@@ -20,7 +20,7 @@ from app.services.orchestrator import OrchestratorService
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return cargar_settings()
 
 
 def build_orchestrator(
