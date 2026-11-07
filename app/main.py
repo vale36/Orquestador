@@ -55,7 +55,7 @@ def _consul_registry(settings: Settings) -> ConsulRegistry | None:
 
 app = FastAPI(
     title="Orquestador",
-    version="1.0.7",
+    version="1.1.0",
     lifespan=lifespan,
 )
 app.include_router(pdf_router)
