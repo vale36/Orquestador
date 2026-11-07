@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.composition import get_settings
+from app.core.consul_registry import ConsulRegistry
 from app.main import app
 
 
@@ -34,3 +35,31 @@ def test_lifespan_applies_log_level(monkeypatch) -> None:
 
     with TestClient(app):
         assert logging.getLogger().level == logging.WARNING
+
+
+def test_lifespan_registra_en_consul_y_deregistra_al_apagar(
+    monkeypatch, tmp_path
+) -> None:
+    eventos = []
+    token = tmp_path / "orchestrator.token"
+    token.write_text("test-token", encoding="utf-8")
+    monkeypatch.setenv("CONSUL_ENABLED", "true")
+    monkeypatch.setenv("CONSUL_HTTP_TOKEN_FILE", str(token))
+    # La configuración ya está en el entorno; el KV de Consul no agrega claves.
+    monkeypatch.setattr(
+        "app.core.config.leer_config_de_consul", lambda *_: {}, raising=False
+    )
+
+    async def registrar(self):
+        eventos.append("registrado")
+
+    async def deregistrar(self):
+        eventos.append("deregistrado")
+
+    monkeypatch.setattr(ConsulRegistry, "register", registrar)
+    monkeypatch.setattr(ConsulRegistry, "deregister", deregistrar)
+
+    with TestClient(app):
+        assert eventos == ["registrado"]
+
+    assert eventos == ["registrado", "deregistrado"]
