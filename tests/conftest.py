@@ -19,6 +19,8 @@ def entorno_de_test(monkeypatch):
         "REQUEST_TIMEOUT_SECONDS": "1",
         "RETRY_ATTEMPTS": "0",
         "RETRY_DELAY_SECONDS": "0",
+        # Sin Consul salvo que el test lo pida: un .env local no lo activa.
+        "CONSUL_ENABLED": "false",
     }.items():
         monkeypatch.setenv(nombre, valor)
 

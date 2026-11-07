@@ -1,4 +1,5 @@
 import logging
+import socket
 import time
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
@@ -10,6 +11,8 @@ from fastapi.responses import JSONResponse
 
 from app.controllers.pdf_routes import router as pdf_router
 from app.core.composition import build_orchestrator, get_settings
+from app.core.config import Settings
+from app.core.consul_registry import ConsulRegistry
 from app.core.exceptions import ExternalServiceError
 from app.core.logs import configurar_logs, correlation_id_actual
 from app.schemas.pdf_schemas import ErrorResponseSchema, ServiceErrorSchema
@@ -23,19 +26,36 @@ async def lifespan(app: FastAPI):
     # Settings se valida al arrancar: una variable faltante impide iniciar la app.
     settings = get_settings()
     logging.getLogger().setLevel(settings.log_level)
-    logger.info("servicio iniciado")
+    registry = _consul_registry(settings)
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as http:
         app.state.orchestrator_service = build_orchestrator(settings, http)
+        if registry:
+            await registry.register()
+        logger.info("servicio iniciado")
         yield
         # uvicorn llega acá ante SIGTERM, después de cerrar el puerto y terminar las
-        # requests en curso (12-Factor IX). Al salir del bloque se cierra httpx.
+        # requests en curso (12-Factor IX). Primero sale de Consul, así Traefik deja de
+        # mandarle tráfico; al salir del bloque se cierra httpx.
         logger.info("apagado iniciado")
+        if registry:
+            try:
+                await registry.deregister()
+            except Exception:
+                logger.exception("no se pudo deregistrar el servicio de Consul")
     logger.info("apagado completo")
+
+
+def _consul_registry(settings: Settings) -> ConsulRegistry | None:
+    if not settings.consul_enabled:
+        return None
+    return ConsulRegistry(
+        settings=settings, instance_id=f"orquestador-{socket.gethostname()}"
+    )
 
 
 app = FastAPI(
     title="Orquestador",
-    version="1.0.7",
+    version="1.1.0",
     lifespan=lifespan,
 )
 app.include_router(pdf_router)
