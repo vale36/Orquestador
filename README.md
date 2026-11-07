@@ -169,6 +169,9 @@ obligatoria o alguna tiene un valor inválido, la aplicación no inicia.
 | `RETRY_ATTEMPTS` | Reintentos además del primer intento; entero no negativo. |
 | `RETRY_DELAY_SECONDS` | Demora entre reintentos, no negativa. |
 | `LOG_LEVEL` | Opcional (contrato 1.2.0): `DEBUG`, `INFO` (por defecto), `WARNING` o `ERROR`. |
+| `CONSUL_SERVICE_ADDRESS` | Dirección con la que se registra en Consul (en la integración, `orquestador`). |
+| `CONSUL_SERVICE_PORT` | Puerto con el que se registra en Consul. Por defecto `8000`. |
+| `CONSUL_SERVICE_TAGS` | Lista JSON con las reglas de Traefik que publican al orquestador (contrato 1.6.0). |
 
 `.env.example` tiene todas las claves sin valores. Para desarrollo local:
 
@@ -209,6 +212,24 @@ Consul falla o no hay instancias saludables, se usa `DEPENDENCY_UNAVAILABLE` y n
 se envía tráfico a una dirección desconocida. Habilitar el fallback exige definir las
 cuatro URLs fijas; debe hacerse solo con esa intención explícita y por el tiempo que
 se considere necesario.
+
+### Configuración y publicación desde Consul (contrato 1.6.0)
+
+- **Configuración:** con `CONSUL_ENABLED=true`, las variables de la tabla salen del KV
+  de Consul, bajo `config/orquestador/`, y tienen prioridad sobre el entorno. Del entorno
+  solo llega cómo conectarse: `CONSUL_ENABLED`, `CONSUL_HTTP_ADDR` y
+  `CONSUL_HTTP_TOKEN_FILE`. Las claves las carga el servicio `consul-config` del compose
+  de integración desde `integracion/env/orquestador.env`. Sin claves en Consul, no
+  arranca. Lo implementan `app/core/consul_config.py` y `cargar_settings()` en
+  `app/core/config.py`.
+- **Publicación:** el orquestador se registra en Consul como `orquestador` (en el
+  `lifespan`, con health check a `/health`) y lleva como tags las reglas de Traefik de
+  `CONSUL_SERVICE_TAGS`: router, `Host`, HTTPS, cortocircuito y límite de tasa. Traefik
+  lo publica por su proveedor Consul Catalog; el compose ya no tiene labels. Al apagarse
+  sale de Consul primero, así Traefik deja de mandarle tráfico. Lo implementa
+  `app/core/consul_registry.py`.
+- Su token puede leer el catálogo, registrar **solo** el servicio `orquestador` y leer
+  `config/orquestador/` (política en `dockers/consul/config/policies/orchestrator.hcl`).
 
 ## Ejecución local
 
