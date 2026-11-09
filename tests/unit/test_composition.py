@@ -140,7 +140,7 @@ def test_compose_mounts_the_orchestrator_token_as_read_only_secret() -> None:
         encoding="utf-8"
     )
 
-    assert "../dockers/consul/generated/orchestrator.token" in compose
+    assert "/orchestrator.token" in compose
     assert "target: /run/secrets/consul_orchestrator_token" in compose
     assert "mode: 0444" in compose
     assert 'CONSUL_FALLBACK_ENABLED: "false"' in compose

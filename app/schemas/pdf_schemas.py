@@ -1,38 +1,16 @@
 """Contrato HTTP público del orquestador (microservicios-pdf v1.0.0)."""
 
-import base64
-import binascii
 from datetime import UTC, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, field_serializer, field_validator
-from pydantic_core import PydanticCustomError
-
-MAX_PDF_SIZE_BYTES = 5 * 1024 * 1024
-MAX_PDF_BASE64_LENGTH = 4 * ((MAX_PDF_SIZE_BYTES + 2) // 3)
-MAX_REQUEST_BODY_BYTES = MAX_PDF_BASE64_LENGTH + 4096
+from pydantic import BaseModel, field_serializer
 
 
 class PdfRequestSchema(BaseModel):
+    # Decodificar el Base64 y medir el tamaño es de validacion-pdf (contrato): acá
+    # solo se exigen los campos.
     archivo_base64: str
     nombre: str
-
-    @field_validator("archivo_base64")
-    @classmethod
-    def validate_pdf_base64(cls, value: str) -> str:
-        if len(value) > MAX_PDF_BASE64_LENGTH:
-            raise PydanticCustomError(
-                "pdf_too_large", "El PDF supera el tamaño máximo permitido"
-            )
-        try:
-            pdf_bytes = base64.b64decode(value, validate=True)
-        except (binascii.Error, ValueError) as error:
-            raise ValueError("archivo_base64 debe ser Base64 válido") from error
-        if len(pdf_bytes) > MAX_PDF_SIZE_BYTES:
-            raise PydanticCustomError(
-                "pdf_too_large", "El PDF supera el tamaño máximo permitido"
-            )
-        return value
 
 
 class PdfDocumentResponseSchema(BaseModel):

@@ -39,6 +39,10 @@ class Settings(ConexionConsul):
     retry_attempts: int = Field(ge=0)
     retry_delay_seconds: float = Field(ge=0)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    # Contrato 1.7.0, opcional: el mismo valor que PDF_MAX_SIZE_MB de validación. Acá
+    # solo sirve para cortar un body demasiado grande antes de leerlo entero; la
+    # regla del tamaño la aplica validacion-pdf.
+    pdf_max_size_mb: int = Field(default=5, gt=0)
 
     @field_validator("consul_service_tags", mode="before")
     @classmethod

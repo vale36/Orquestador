@@ -103,3 +103,22 @@ def test_log_level_invalido_impide_arrancar(entorno) -> None:
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_pdf_max_size_mb_es_opcional_y_5_por_defecto(entorno) -> None:
+    # Contrato 1.7.0: el mismo valor que PDF_MAX_SIZE_MB de validación.
+    assert Settings().pdf_max_size_mb == 5
+
+
+def test_pdf_max_size_mb_se_lee_del_entorno(entorno) -> None:
+    entorno.setenv("PDF_MAX_SIZE_MB", "10")
+
+    assert Settings().pdf_max_size_mb == 10
+
+
+@pytest.mark.parametrize("valor", ["0", "-1", "cinco"])
+def test_pdf_max_size_mb_invalido_impide_arrancar(entorno, valor) -> None:
+    entorno.setenv("PDF_MAX_SIZE_MB", valor)
+
+    with pytest.raises(ValidationError):
+        Settings()

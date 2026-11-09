@@ -6,8 +6,6 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.pdf_schemas import (
-    MAX_PDF_BASE64_LENGTH,
-    MAX_PDF_SIZE_BYTES,
     ErrorResponseSchema,
     PdfDocumentResponseSchema,
     PdfRequestSchema,
@@ -27,25 +25,22 @@ def test_pdf_request_requires_contract_fields_and_accepts_json_types() -> None:
     with pytest.raises(ValidationError):
         PdfRequestSchema(archivo_base64=123, nombre="contrato.pdf")
 
-    with pytest.raises(ValidationError, match="Base64 válido"):
-        PdfRequestSchema(archivo_base64="not!base64", nombre="contrato.pdf")
 
-
-def test_pdf_request_accepts_exactly_the_maximum_decoded_size() -> None:
-    archivo_base64 = base64.b64encode(b"x" * MAX_PDF_SIZE_BYTES).decode("ascii")
-
+@pytest.mark.parametrize(
+    "archivo_base64",
+    [
+        "not!base64",
+        # La salida del comando base64 corta cada 76 caracteres.
+        base64.encodebytes(b"%PDF-1.4\n" + b"x" * 200).decode("ascii"),
+    ],
+    ids=["invalido", "con_saltos_de_linea"],
+)
+def test_pdf_request_leaves_the_base64_to_validacion(archivo_base64: str) -> None:
+    # Decodificar, rechazar el Base64 inválido y medir el tamaño es de validacion-pdf
+    # (contrato): el schema del orquestador solo exige los campos.
     request = PdfRequestSchema(archivo_base64=archivo_base64, nombre="contrato.pdf")
 
-    assert len(base64.b64decode(request.archivo_base64)) == MAX_PDF_SIZE_BYTES
-
-
-def test_pdf_request_rejects_encoded_data_over_the_maximum_size() -> None:
-    archivo_base64 = "A" * (MAX_PDF_BASE64_LENGTH + 1)
-
-    with pytest.raises(ValidationError) as error:
-        PdfRequestSchema(archivo_base64=archivo_base64, nombre="contrato.pdf")
-
-    assert error.value.errors()[0]["type"] == "pdf_too_large"
+    assert request.archivo_base64 == archivo_base64
 
 
 def test_document_response_serializes_the_common_model() -> None:

@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 from dataclasses import replace
@@ -6,11 +7,14 @@ from uuid import UUID
 import httpx
 import pytest
 
-from app.core.composition import build_orchestrator, get_orchestrator_service
+from app.core.composition import (
+    build_orchestrator,
+    get_orchestrator_service,
+    get_settings,
+)
 from app.core.config import Settings
 from app.core.exceptions import DependencyUnavailableError, ExternalServiceError
-from app.main import app
-from app.schemas.pdf_schemas import MAX_PDF_BASE64_LENGTH, MAX_REQUEST_BODY_BYTES
+from app.main import app, limite_del_body
 from tests.doubles import CORRELATION_ID, DOCUMENT_ID, EXTRACTION
 
 REQUEST_BODY = {"archivo_base64": "JVBERi0xLjQK", "nombre": "contrato.pdf"}
@@ -69,26 +73,83 @@ async def test_invalid_request_returns_validation_error(client, ports, body) -> 
     assert REQUEST_BODY["archivo_base64"] not in response.text
 
 
-async def test_invalid_base64_returns_validation_error_without_forwarding(
-    client, ports
+@pytest.mark.parametrize(
+    "archivo_base64",
+    [
+        "not!base64",
+        base64.encodebytes(b"%PDF-1.4\n" + b"x" * 200).decode("ascii"),
+    ],
+    ids=["invalido", "con_saltos_de_linea"],
+)
+async def test_base64_is_checked_by_validacion_not_by_the_orchestrator(
+    client, ports, archivo_base64
 ) -> None:
+    # Validación acepta el Base64 con saltos de línea y responde 422 PDF_INVALID al
+    # inválido: el orquestador se lo pasa sin juzgarlo.
     response = await client.post(
         "/pdf",
-        json={"archivo_base64": "not!base64", "nombre": "contrato.pdf"},
+        json={"archivo_base64": archivo_base64, "nombre": "contrato.pdf"},
         headers={"X-Correlation-ID": CORRELATION_ID},
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
-    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
+    assert response.status_code == 201
+    assert len(ports.validation.calls) == 1
+
+
+MIB = 1024 * 1024
+# PDF_MAX_SIZE_MB no está en el entorno de los tests: vale el valor por defecto, 5.
+LIMITE_POR_DEFECTO = limite_del_body(5 * MIB)
+
+
+@pytest.fixture
+def limite_de_1_mb(monkeypatch):
+    """PDF_MAX_SIZE_MB=1: el límite sale de la configuración, no de una constante."""
+    monkeypatch.setenv("PDF_MAX_SIZE_MB", "1")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_body_limit_leaves_room_for_line_breaks_and_the_json() -> None:
+    base64_del_maximo = 4 * -(-MIB // 3)
+
+    assert limite_del_body(MIB) > base64_del_maximo + 2 * (base64_del_maximo // 76)
+
+
+async def test_the_body_limit_comes_from_pdf_max_size_mb(
+    client, ports, limite_de_1_mb
+) -> None:
+    response = await client.post(
+        "/pdf",
+        json={"archivo_base64": "A" * limite_del_body(MIB), "nombre": "a.pdf"},
+        headers={"X-Correlation-ID": CORRELATION_ID},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["details"] == {"max_size_bytes": MIB}
     assert ports.validation.calls == []
+
+
+async def test_a_pdf_of_the_maximum_size_with_line_breaks_is_not_cut(
+    client, ports, limite_de_1_mb
+) -> None:
+    archivo_base64 = base64.encodebytes(b"x" * MIB).decode("ascii")
+
+    response = await client.post(
+        "/pdf",
+        json={"archivo_base64": archivo_base64, "nombre": "a.pdf"},
+        headers={"X-Correlation-ID": CORRELATION_ID},
+    )
+
+    assert response.status_code == 201
+    assert len(ports.validation.calls) == 1
 
 
 async def test_pdf_over_the_limit_returns_413(client, ports) -> None:
     response = await client.post(
         "/pdf",
         json={
-            "archivo_base64": "A" * (MAX_PDF_BASE64_LENGTH + 1),
+            "archivo_base64": "A" * (LIMITE_POR_DEFECTO + 1),
             "nombre": "contrato.pdf",
         },
         headers={"X-Correlation-ID": CORRELATION_ID},
@@ -104,7 +165,7 @@ async def test_pdf_over_the_limit_returns_413(client, ports) -> None:
 async def test_chunked_request_body_over_the_limit_returns_413(client, ports) -> None:
     class OversizedBody(httpx.AsyncByteStream):
         async def __aiter__(self):
-            remaining = MAX_REQUEST_BODY_BYTES + 1
+            remaining = LIMITE_POR_DEFECTO + 1
             chunk = b"x" * (64 * 1024)
             while remaining:
                 body = chunk[: min(remaining, len(chunk))]
@@ -131,7 +192,7 @@ async def test_declared_content_length_over_the_limit_returns_413(
         content=b"{}",
         headers={
             "X-Correlation-ID": CORRELATION_ID,
-            "Content-Length": str(MAX_REQUEST_BODY_BYTES + 1),
+            "Content-Length": str(LIMITE_POR_DEFECTO + 1),
         },
     )
 
