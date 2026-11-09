@@ -134,7 +134,7 @@ class RequestBodyLimitMiddleware:
 
 app = FastAPI(
     title="Orquestador",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
 )
 app.include_router(pdf_router)

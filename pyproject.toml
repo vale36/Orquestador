@@ -1,6 +1,6 @@
 [project]
 name = "orquestador"
-version = "1.1.0"
+version = "1.2.0"
 description = "Microservicio orquestador del proyecto microservicios-pdf"
 readme = "README.md"
 requires-python = ">=3.11"
