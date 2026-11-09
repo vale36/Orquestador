@@ -1,6 +1,7 @@
 import logging
 import socket
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
@@ -15,12 +16,7 @@ from app.core.config import Settings
 from app.core.consul_registry import ConsulRegistry
 from app.core.exceptions import ExternalServiceError
 from app.core.logs import configurar_logs, correlation_id_actual
-from app.schemas.pdf_schemas import (
-    MAX_PDF_SIZE_BYTES,
-    MAX_REQUEST_BODY_BYTES,
-    ErrorResponseSchema,
-    ServiceErrorSchema,
-)
+from app.schemas.pdf_schemas import ErrorResponseSchema, ServiceErrorSchema
 
 configurar_logs()
 logger = logging.getLogger(__name__)
@@ -58,10 +54,24 @@ def _consul_registry(settings: Settings) -> ConsulRegistry | None:
     )
 
 
+MIB = 1024 * 1024
+
+
+def limite_del_body(max_pdf_bytes: int) -> int:
+    """Bytes que puede traer el body de POST /pdf con un PDF del tamaño máximo: el
+    Base64, un salto de línea escapado en el JSON ("\n") cada 76 caracteres (la
+    salida del comando base64) y 4 KiB para el nombre y el resto del JSON."""
+    largo_base64 = 4 * -(-max_pdf_bytes // 3)
+    return largo_base64 + 2 * (largo_base64 // 76 + 1) + 4096
+
+
 class RequestBodyLimitMiddleware:
-    def __init__(self, app, max_body_size: int) -> None:
+    """Corta un body demasiado grande antes de leerlo entero (protección del
+    orquestador). El tamaño exacto del PDF lo controla validacion-pdf."""
+
+    def __init__(self, app, max_pdf_bytes: Callable[[], int]) -> None:
         self.app = app
-        self.max_body_size = max_body_size
+        self.max_pdf_bytes = max_pdf_bytes
 
     async def __call__(self, scope, receive, send) -> None:
         if (
@@ -72,8 +82,10 @@ class RequestBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if self._content_length_exceeds_limit(scope):
-            await self._reject(scope, receive, send)
+        max_pdf_bytes = self.max_pdf_bytes()
+        limite = limite_del_body(max_pdf_bytes)
+        if self._content_length_exceeds_limit(scope, limite):
+            await self._reject(scope, receive, send, max_pdf_bytes)
             return
 
         received_bytes = 0
@@ -86,9 +98,9 @@ class RequestBodyLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received_bytes += len(message.get("body", b""))
-                if received_bytes > self.max_body_size:
+                if received_bytes > limite:
                     oversized = True
-                    await self._reject(scope, receive, send)
+                    await self._reject(scope, receive, send, max_pdf_bytes)
                     return {"type": "http.disconnect"}
             return message
 
@@ -98,24 +110,24 @@ class RequestBodyLimitMiddleware:
 
         await self.app(scope, limited_receive, limited_send)
 
-    def _content_length_exceeds_limit(self, scope) -> bool:
+    def _content_length_exceeds_limit(self, scope, limite: int) -> bool:
         for name, value in scope.get("headers", []):
             if name.lower() == b"content-length":
                 try:
-                    if int(value) > self.max_body_size:
+                    if int(value) > limite:
                         return True
                 except ValueError:
                     continue
         return False
 
-    async def _reject(self, scope, receive, send) -> None:
+    async def _reject(self, scope, receive, send, max_pdf_bytes: int) -> None:
         request = Request(scope)
         response = error_response(
             request,
             413,
             "PDF_TOO_LARGE",
             "El PDF supera el tamaño máximo permitido",
-            {"max_size_bytes": MAX_PDF_SIZE_BYTES},
+            {"max_size_bytes": max_pdf_bytes},
         )
         await response(scope, receive, send)
 
@@ -126,7 +138,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(pdf_router)
-app.add_middleware(RequestBodyLimitMiddleware, max_body_size=MAX_REQUEST_BODY_BYTES)
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_pdf_bytes=lambda: get_settings().pdf_max_size_mb * MIB,
+)
 
 
 @app.get("/health")

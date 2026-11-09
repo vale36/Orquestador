@@ -5,10 +5,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, field_serializer
 
-MAX_PDF_SIZE_BYTES = 5 * 1024 * 1024
-MAX_PDF_BASE64_LENGTH = 4 * ((MAX_PDF_SIZE_BYTES + 2) // 3)
-MAX_REQUEST_BODY_BYTES = MAX_PDF_BASE64_LENGTH + 4096
-
 
 class PdfRequestSchema(BaseModel):
     # Decodificar el Base64 y medir el tamaño es de validacion-pdf (contrato): acá
