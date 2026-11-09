@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 from dataclasses import replace
@@ -10,7 +11,7 @@ from app.core.composition import build_orchestrator, get_orchestrator_service
 from app.core.config import Settings
 from app.core.exceptions import DependencyUnavailableError, ExternalServiceError
 from app.main import app
-from app.schemas.pdf_schemas import MAX_PDF_BASE64_LENGTH, MAX_REQUEST_BODY_BYTES
+from app.schemas.pdf_schemas import MAX_REQUEST_BODY_BYTES
 from tests.doubles import CORRELATION_ID, DOCUMENT_ID, EXTRACTION
 
 REQUEST_BODY = {"archivo_base64": "JVBERi0xLjQK", "nombre": "contrato.pdf"}
@@ -69,26 +70,34 @@ async def test_invalid_request_returns_validation_error(client, ports, body) -> 
     assert REQUEST_BODY["archivo_base64"] not in response.text
 
 
-async def test_invalid_base64_returns_validation_error_without_forwarding(
-    client, ports
+@pytest.mark.parametrize(
+    "archivo_base64",
+    [
+        "not!base64",
+        base64.encodebytes(b"%PDF-1.4\n" + b"x" * 200).decode("ascii"),
+    ],
+    ids=["invalido", "con_saltos_de_linea"],
+)
+async def test_base64_is_checked_by_validacion_not_by_the_orchestrator(
+    client, ports, archivo_base64
 ) -> None:
+    # Validación acepta el Base64 con saltos de línea y responde 422 PDF_INVALID al
+    # inválido: el orquestador se lo pasa sin juzgarlo.
     response = await client.post(
         "/pdf",
-        json={"archivo_base64": "not!base64", "nombre": "contrato.pdf"},
+        json={"archivo_base64": archivo_base64, "nombre": "contrato.pdf"},
         headers={"X-Correlation-ID": CORRELATION_ID},
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
-    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
-    assert ports.validation.calls == []
+    assert response.status_code == 201
+    assert len(ports.validation.calls) == 1
 
 
 async def test_pdf_over_the_limit_returns_413(client, ports) -> None:
     response = await client.post(
         "/pdf",
         json={
-            "archivo_base64": "A" * (MAX_PDF_BASE64_LENGTH + 1),
+            "archivo_base64": "A" * (MAX_REQUEST_BODY_BYTES + 1),
             "nombre": "contrato.pdf",
         },
         headers={"X-Correlation-ID": CORRELATION_ID},
