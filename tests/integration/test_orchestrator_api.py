@@ -10,9 +10,10 @@ from app.core.composition import build_orchestrator, get_orchestrator_service
 from app.core.config import Settings
 from app.core.exceptions import DependencyUnavailableError, ExternalServiceError
 from app.main import app
+from app.schemas.pdf_schemas import MAX_PDF_BASE64_LENGTH, MAX_REQUEST_BODY_BYTES
 from tests.doubles import CORRELATION_ID, DOCUMENT_ID, EXTRACTION
 
-REQUEST_BODY = {"archivo_base64": "JVBERi0xLjQK...", "nombre": "contrato.pdf"}
+REQUEST_BODY = {"archivo_base64": "JVBERi0xLjQK", "nombre": "contrato.pdf"}
 DOCUMENT_BODY = {
     "id": str(DOCUMENT_ID),
     "nombre": "contrato-extraido.pdf",
@@ -66,6 +67,78 @@ async def test_invalid_request_returns_validation_error(client, ports, body) -> 
     assert response.json()["error"]["correlation_id"] == CORRELATION_ID
     assert ports.validation.calls == []
     assert REQUEST_BODY["archivo_base64"] not in response.text
+
+
+async def test_invalid_base64_returns_validation_error_without_forwarding(
+    client, ports
+) -> None:
+    response = await client.post(
+        "/pdf",
+        json={"archivo_base64": "not!base64", "nombre": "contrato.pdf"},
+        headers={"X-Correlation-ID": CORRELATION_ID},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
+    assert ports.validation.calls == []
+
+
+async def test_pdf_over_the_limit_returns_413(client, ports) -> None:
+    response = await client.post(
+        "/pdf",
+        json={
+            "archivo_base64": "A" * (MAX_PDF_BASE64_LENGTH + 1),
+            "nombre": "contrato.pdf",
+        },
+        headers={"X-Correlation-ID": CORRELATION_ID},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PDF_TOO_LARGE"
+    assert response.json()["error"]["details"] == {"max_size_bytes": 5 * 1024 * 1024}
+    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
+    assert ports.validation.calls == []
+
+
+async def test_chunked_request_body_over_the_limit_returns_413(client, ports) -> None:
+    class OversizedBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            remaining = MAX_REQUEST_BODY_BYTES + 1
+            chunk = b"x" * (64 * 1024)
+            while remaining:
+                body = chunk[: min(remaining, len(chunk))]
+                yield body
+                remaining -= len(body)
+
+    response = await client.post(
+        "/pdf",
+        content=OversizedBody(),
+        headers={"X-Correlation-ID": CORRELATION_ID},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PDF_TOO_LARGE"
+    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
+    assert ports.validation.calls == []
+
+
+async def test_declared_content_length_over_the_limit_returns_413(
+    client, ports
+) -> None:
+    response = await client.post(
+        "/pdf",
+        content=b"{}",
+        headers={
+            "X-Correlation-ID": CORRELATION_ID,
+            "Content-Length": str(MAX_REQUEST_BODY_BYTES + 1),
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PDF_TOO_LARGE"
+    assert response.headers["X-Correlation-ID"] == CORRELATION_ID
+    assert ports.validation.calls == []
 
 
 @pytest.mark.parametrize(
