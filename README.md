@@ -172,6 +172,11 @@ obligatoria o alguna tiene un valor inválido, la aplicación no inicia.
 | `CONSUL_SERVICE_ADDRESS` | Dirección con la que se registra en Consul (en la integración, `orquestador`). |
 | `CONSUL_SERVICE_PORT` | Puerto con el que se registra en Consul. Por defecto `8000`. |
 | `CONSUL_SERVICE_TAGS` | Lista JSON con las reglas de Traefik que publican al orquestador (contrato 1.6.0). |
+| `PDF_MAX_SIZE_MB` | Opcional (contrato 1.7.0), `5` por defecto: el mismo valor que en `validacion-pdf`. Corta antes de leerlo un body que no puede traer un PDF de ese tamaño. |
+
+Solo para `docker compose`, no para la aplicación: `CONSUL_TOKENS_DIR`, la carpeta con los
+tokens que deja el bootstrap de Consul. Por defecto `../dockers/consul/generated` (los
+repos clonados uno al lado del otro).
 
 `.env.example` tiene todas las claves sin valores. Para desarrollo local:
 
@@ -276,7 +281,7 @@ significado:
 | Código | HTTP | Ejemplo |
 | --- | --- | --- |
 | `VALIDATION_ERROR` | `400` | Falta `archivo_base64` o `nombre`. |
-| `PDF_TOO_LARGE` | `413` | Lo rechazó validación. |
+| `PDF_TOO_LARGE` | `413` | Lo rechazó validación, o el body no entra en el límite de `PDF_MAX_SIZE_MB` (ver abajo). |
 | `PDF_INVALID`, `PDF_CORRUPTED` | `422` | Lo rechazó validación o extracción. |
 | `DUPLICATE_CHECKSUM` | `409` | El PDF ya estaba guardado. |
 | `DEPENDENCY_UNAVAILABLE` | `503` | Una dependencia no respondió (timeout, conexión) o respondió fuera del contrato. |
@@ -285,6 +290,13 @@ significado:
 
 Los errores de validación del request no incluyen el valor recibido, para no
 devolver ni registrar el PDF en Base64.
+
+**Límite del body (seguridad).** Antes de leer el request, un middleware corta con
+`413 PDF_TOO_LARGE` los `POST /pdf` cuyo body no puede traer un PDF de
+`PDF_MAX_SIZE_MB`: el Base64 de ese tamaño, sus saltos de línea escapados en el JSON y
+4 KiB para el resto. Así un body enorme no se carga entero en memoria. El orquestador
+**no** decodifica el Base64 ni mide el PDF: esa regla es de `validacion-pdf` (contrato),
+que acepta el Base64 con saltos de línea y responde `422 PDF_INVALID` al inválido.
 
 La respuesta exitosa reenvía el header `X-Extraction-Time-Ms` que informa
 `extraccion-texto` (decodificar, leer con PyMuPDF y calcular el checksum). Así las
