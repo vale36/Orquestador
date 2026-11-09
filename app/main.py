@@ -232,14 +232,6 @@ async def request_validation_error_handler(
     request: Request, error: RequestValidationError
 ) -> JSONResponse:
     # Sin el valor recibido: el input puede traer el PDF entero en Base64.
-    if any(item["type"] == "pdf_too_large" for item in error.errors()):
-        return error_response(
-            request,
-            413,
-            "PDF_TOO_LARGE",
-            "El PDF supera el tamaño máximo permitido",
-            {"max_size_bytes": MAX_PDF_SIZE_BYTES},
-        )
     errors = [
         {"loc": list(item["loc"]), "msg": item["msg"], "type": item["type"]}
         for item in error.errors()
