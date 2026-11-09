@@ -20,8 +20,10 @@ services:
       - redutn
 
 secrets:
+  # La carpeta donde el bootstrap de Consul deja los tokens. Por defecto, la del repo
+  # de infraestructura clonado como ../dockers; se cambia con CONSUL_TOKENS_DIR en .env.
   consul_orchestrator_token:
-    file: ../dockers/consul/generated/orchestrator.token
+    file: ${CONSUL_TOKENS_DIR:-../dockers/consul/generated}/orchestrator.token
 
 networks:
   redutn:
