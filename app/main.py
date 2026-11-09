@@ -126,9 +126,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(pdf_router)
-app.add_middleware(
-    RequestBodyLimitMiddleware, max_body_size=MAX_REQUEST_BODY_BYTES
-)
+app.add_middleware(RequestBodyLimitMiddleware, max_body_size=MAX_REQUEST_BODY_BYTES)
 
 
 @app.get("/health")
